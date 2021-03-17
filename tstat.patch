@@ -95,7 +95,7 @@ diff -ruN tstat/Makefile.sources tstat/Makefile.sources
 diff -ruN tstat/pcapwrapper.c tstat/pcapwrapper.c
 --- tstat/pcapwrapper.c	1970-01-01 01:00:00.000000000 +0100
 +++ tstat/pcapwrapper.c	2021-02-22 15:23:28.680000000 +0100
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,242 @@
 +/*
 + *
 + * Copyright (c) 2001
@@ -119,6 +119,9 @@ diff -ruN tstat/pcapwrapper.c tstat/pcapwrapper.c
 +*/
 +
 +#include "pcapwrapper.h"
++
++#define printf(format...) (format)
++#define fprintf(where, format...) (where, format)
 +
 +/* global pointer, the pcap info header */
 +static pcap_t *pcap;
@@ -597,7 +600,7 @@ diff -ruN tstat/tcp.c tstat/tcp.c
 diff -ruN tstat/tstat.c tstat/tstat.c
 --- tstat/tstat.c	2016-05-30 17:16:23.000000000 +0200
 +++ tstat/tstat.c	2021-02-22 15:23:28.680000000 +0100
-@@ -35,6 +35,13 @@
+@@ -35,6 +35,16 @@
  #include "videoL7.h"
  #include "globals.h"
  
@@ -607,6 +610,9 @@ diff -ruN tstat/tstat.c tstat/tstat.c
 +//#include <libtstat.h>
 +#include <unistd.h>
 +#include "pcapwrapper.h"
++
++#define printf(format...) (format)
++#define fprintf(where, format...) (where, format)
 +
  /* version information */
  char *tstat_version = VERSION;
