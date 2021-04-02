@@ -6,8 +6,21 @@ name = "pypi"
 [packages]
 pandas = "*"
 colorama = "*"
+sklearn = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.9"
+
+[packages.ops]
+git = "https://github.com/daniele-canavese/ops.git"
+editable = true
+
+[packages.quill_ml]
+git = "https://github.com/daniele-canavese/quill_ml.git"
+editable = true
+
+[packages.quill]
+git = "https://github.com/daniele-canavese/quill.git"
+editable = true

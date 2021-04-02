@@ -2,33 +2,30 @@
 Trains a new IDS.
 """
 
-# Parses the input arguments.
 from argparse import ArgumentParser
 from configparser import ConfigParser
-from glob import glob
 
 from colorama import Fore
 from colorama import Style
-from numpy import mean
+from joblib import dump
 
-from net import TstatAnalyzer
+from netgen import NetGen
 
+# Parses the input arguments.
 parser = ArgumentParser(description="Trains a new IDS.")
-parser.add_argument("config", help="sets the name of the configuration file")
+parser.add_argument("--quiet", action="store_true", help="disables the logs")
+parser.add_argument("--test", default="test", help="sets the test folder")
+parser.add_argument("--config", default="netgen.conf", help="the name of the configuration file")
+parser.add_argument("--model", default="model.joblib", help="the name of the generated model file")
 args = parser.parse_args()
 
 # Parses the configuration file.
-config = ConfigParser()
-config.read(args.config)
+configuration = ConfigParser()
+configuration.read(args.config)
 
-print(Fore.RED + "training started" + Style.RESET_ALL)
-for name in config["classes"]:
-    print(Fore.GREEN + "class " + name + Style.RESET_ALL)
-    data = []
-    for pcap in sorted(glob(config.get("classes", name), recursive=True)):
-        print("  analyzing " + pcap + "...", end="")
-        analyzer = TstatAnalyzer(config, 10)
-        t = analyzer.analyze(pcap)
-        print(" %d samples with an average length of %.1f chunks" % (len(t), mean([len(i) for i in t])))
-        data.extend(t)
-    print("  %d total samples with an average length of %.1f chunks" % (len(data), mean([len(i) for i in data])))
+netgen = NetGen(configuration)
+model, train_x, test_x, train_y, test_y = netgen.train(not args.quiet)
+if not args.quiet:
+    print(Fore.LIGHTYELLOW_EX + "saving the model to %s..." % args.model + Style.RESET_ALL)
+dump(model, args.model)
+netgen.test(model, train_x, test_x, train_y, test_y, args.test, not args.quiet)

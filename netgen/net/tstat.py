@@ -2,7 +2,6 @@
 Tstat class.
 """
 
-from socket import inet_ntoa
 from collections import Sequence
 from configparser import ConfigParser
 from ctypes import CDLL
@@ -16,6 +15,7 @@ from ctypes import c_uint
 from ctypes import c_uint32
 from ctypes import c_ulong
 from ctypes import c_ushort
+from socket import inet_ntoa
 from struct import pack
 from typing import Any
 from typing import Dict
@@ -139,19 +139,20 @@ class TstatAnalyzer(Analyzer):
         :return: a list of dataframes where each dataframe contains the time steps of a flow
         """
 
+        snapshot_length = self.__configuration.getint("tstat", "snapshot_length")
+        timeout = int(self.__configuration.getfloat("tstat", "timeout") * 1000)
+        chunks_length = self.__configuration.getint("tstat", "chunks_length")
+
         dictionary = {}
 
         if self.__sniffing_initialized is False:
             interface_file = c_char_p(interface.encode("utf-8"))
-            self.__libtstat.tstat_export_core_statistics_init(self.__conf_file,
-                                                              interface_file,
-                                                              1,
-                                                              int(self.__configuration.get("Tstat", "BufferSize")),
-                                                              int(self.__configuration.get("Tstat", "Timeout")))
+            self.__libtstat.tstat_export_core_statistics_init(self.__conf_file, interface_file, 1, snapshot_length,
+                                                              timeout)
             self.__sniffing_initialized = True
 
         chunk_number = 1
-        while chunk_number - 1 < int(self.__configuration.get("Tstat", "ChunksInDataframeList")):
+        while chunk_number - 1 < chunks_length:
             self.__read_tstat_chunk(dictionary)
             chunk_number += 1
 
@@ -160,16 +161,18 @@ class TstatAnalyzer(Analyzer):
             if flow_id in self.__sniffing_last_dictionary.keys():
                 last_dictionary_flow_stats = self.__sniffing_last_dictionary[flow_id]
                 dictionary[flow_id][0:0] = last_dictionary_flow_stats
-            dataframe_dictionary[flow_id] = DataFrame(columns=self.__dataframe_columns, data=dictionary[flow_id])
+            dataframe_dictionary[flow_id] = DataFrame(data=dictionary[flow_id], columns=self.__dataframe_columns)
         self.__sniffing_last_dictionary = dictionary
 
         return list(dataframe_dictionary.values())
 
-    def stop_sniff(self):
+    def __del__(self):
         """
         Stop sniffing an interface, closing gracefully the underlying Tstat instance.
         """
-        self.__libtstat.tstat_export_core_statistics_close(1)
+
+        if self.__sniffing_initialized:
+            self.__libtstat.tstat_export_core_statistics_close(1)
 
 
 class TCPCoreStatistics(Structure):
@@ -292,7 +295,7 @@ class TCPCoreStatistics(Structure):
 
         # noinspection SpellCheckingInspection
         row = {
-                "c2s_ip":                 self.c2s_ip,
+                "c2s_ip":                 inet_ntoa(pack("<L", self.c2s_ip)),
                 "c2s_port":               self.c2s_port,
                 "c2s_packets":            self.c2s_packets,
                 "c2s_reset_count":        self.c2s_reset_count,
@@ -306,7 +309,7 @@ class TCPCoreStatistics(Structure):
                 "c2s_out_order_pkts":     self.c2s_out_order_pkts,
                 "c2s_syn_count":          self.c2s_syn_count,
                 "c2s_fin_count":          self.c2s_fin_count,
-                "s2c_ip":                 self.s2c_ip,
+                "s2c_ip":                 inet_ntoa(pack("<L", self.s2c_ip)),
                 "s2c_port":               self.s2c_port,
                 "s2c_packets":            self.s2c_packets,
                 "s2c_reset_count":        self.s2c_reset_count,
