@@ -5,8 +5,7 @@ Trains a new IDS.
 from argparse import ArgumentParser
 from configparser import ConfigParser
 
-from colorama import Fore
-from colorama import Style
+from blessed import Terminal
 from joblib import dump
 
 from netgen import NetGen
@@ -23,9 +22,11 @@ args = parser.parse_args()
 configuration = ConfigParser()
 configuration.read(args.config)
 
+terminal = Terminal()
+
 netgen = NetGen(configuration)
 model, train_x, test_x, train_y, test_y = netgen.train(not args.quiet)
 if not args.quiet:
-    print(Fore.LIGHTYELLOW_EX + "saving the model to %s..." % args.model + Style.RESET_ALL)
+    print(terminal.darkorange("saving the model to %s..." % args.model))
 dump(model, args.model)
 netgen.test(model, train_x, test_x, train_y, test_y, args.test, not args.quiet)

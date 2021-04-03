@@ -1,7 +1,7 @@
 """
 The amazing NetGen class.
 """
-
+from collections import Sequence
 from configparser import ConfigParser
 from enum import Enum
 from glob import glob
@@ -13,8 +13,7 @@ from typing import List
 from typing import Optional
 from typing import Tuple
 
-from colorama import Fore
-from colorama import Style
+from blessed import Terminal
 from joblib import load
 from numpy import argmax
 from ops import optimize
@@ -51,6 +50,7 @@ class NetGen:
 
         self.__configuration = configuration
         self.__analyzer = TstatAnalyzer(self.__configuration, packets)
+        self.__terminal = Terminal()
 
     def __get_features(self, features: List[str]):
         """
@@ -61,11 +61,30 @@ class NetGen:
         """
 
         id_fields = self.__configuration.get("data_set", "id_fields").split()
-
         for i in id_fields:
             if i in features:
                 features.remove(i)
+
+        excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
+        for i in excluded_fields:
+            if i in features:
+                features.remove(i)
+
         return features
+
+    @staticmethod
+    def get_classes(model_name: str) -> Sequence[str]:
+        """
+        Retrieves the classes of a classifier.
+
+        :param model_name: the file name of the model
+        :return: the classes of the classifier
+        """
+
+        model = load(model_name)
+
+        # noinspection PyUnresolvedReferences
+        return model["classifier"].classes_
 
     @staticmethod
     def __infer(classifier: ClassifierMixin, x: DataFrame, y: Optional[DataFrame]) -> DataFrame:
@@ -142,20 +161,20 @@ class NetGen:
         """
 
         if verbose:
-            print(Fore.LIGHTRED_EX + "TESTING..." + Style.RESET_ALL)
+            print(self.__terminal.red("TESTING..."))
 
         classifier = model["classifier"]
 
         if verbose:
-            print(Fore.LIGHTYELLOW_EX + "analyzing the training set..." + Style.RESET_ALL)
+            print(self.__terminal.darkorange("analyzing the training set..."))
         train = self.__infer(classifier, train_x, train_y)
 
         if verbose:
-            print(Fore.LIGHTYELLOW_EX + "analyzing the test set..." + Style.RESET_ALL)
+            print(self.__terminal.darkorange("analyzing the test set..."))
         test = self.__infer(classifier, test_x, test_y)
 
         if verbose:
-            print(Fore.LIGHTYELLOW_EX + "generating the report..." + Style.RESET_ALL)
+            print(self.__terminal.darkorange("generating the report..."))
         report = ClassificationReport("NetGen report")
         report.set_classification_data("IDS", "training set", train)
         report.set_classification_data("IDS", "test set", test)
@@ -179,10 +198,10 @@ class NetGen:
         data_set = {}
 
         if verbose:
-            print(Fore.LIGHTRED_EX + "TRAINING..." + Style.RESET_ALL)
+            print(self.__terminal.red("TRAINING..."))
         for name in self.__configuration["classes"]:
             if verbose:
-                print(Fore.LIGHTYELLOW_EX + "analyzing the captures for the class \"%s\"..." % name + Style.RESET_ALL)
+                print(self.__terminal.darkorange("analyzing the captures for the class \"%s\"..." % name))
             data = []
             for pcap in sorted(glob(self.__configuration.get("classes", name), recursive=True)):
                 if verbose:
@@ -197,7 +216,7 @@ class NetGen:
 
         if random_forests:
             if verbose:
-                print(Fore.LIGHTYELLOW_EX + "creating the tables for the combinatorial models..." + Style.RESET_ALL)
+                print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
 
             x, y = to_dataframe(data_set)
             features = self.__get_features(x.columns.to_list())
@@ -211,7 +230,7 @@ class NetGen:
             model = {}
             if random_forests:
                 if verbose:
-                    print(Fore.LIGHTYELLOW_EX + "optimizing random forests..." + Style.RESET_ALL)
+                    print(self.__terminal.darkorange("optimizing random forests..."))
                 classifier, study = optimize("random forest study", train_x, train_y, train_random_forest,
                                              timeout=timeout, verbose=verbose)
                 model["classifier"] = classifier

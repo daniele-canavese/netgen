@@ -5,8 +5,8 @@ name = "pypi"
 
 [packages]
 pandas = "*"
-colorama = "*"
 sklearn = "*"
+blessed = "*"
 
 [dev-packages]
 
