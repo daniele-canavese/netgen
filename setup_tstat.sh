@@ -9,7 +9,7 @@ cp tstat.patch tstat-3.1.1
 cd tstat-3.1.1 || exit
 patch -p0 <tstat.patch
 ./autogen.sh
-./configure --enable-libtstat --disable-dependency-tracking --enable-shared CC="gcc-9" CXX="g++-9"
+./configure --enable-libtstat --disable-dependency-tracking --enable-shared CC="${CC:-gcc}" CXX="${CXX:-g++}"
 make
 cd tstat-conf
 VAR=$(pwd)
