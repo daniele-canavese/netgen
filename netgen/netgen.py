@@ -8,16 +8,22 @@ from glob import glob
 from os import mkdir
 from os.path import exists
 from typing import Any
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+from typing import Union
+from warnings import catch_warnings
+from warnings import simplefilter
 
 from blessed import Terminal
 from joblib import load
 from numpy import argmax
 from numpy import inf
 from ops import optimize
+from optuna import Trial
+from optuna.trial import FrozenTrial
 from pandas import DataFrame
 from pandas import concat
 from quill_ml import ClassificationReport
@@ -27,6 +33,7 @@ from sklearn.model_selection import train_test_split
 from netgen.ml import to_dataframe
 from netgen.ml import train_extra_trees
 from netgen.ml import train_random_forest
+from netgen.ml import train_svm
 from netgen.net import TstatAnalyzer
 
 
@@ -75,20 +82,6 @@ class NetGen:
         return features
 
     @staticmethod
-    def get_classes(model_name: str) -> Sequence[str]:
-        """
-        Retrieves the classes of a classifier.
-
-        :param model_name: the file name of the model
-        :return: the classes of the classifier
-        """
-
-        model = load(model_name)
-
-        # noinspection PyUnresolvedReferences
-        return model["classifier"].classes_
-
-    @staticmethod
     def __infer(classifier: ClassifierMixin, x: DataFrame, y: Optional[DataFrame]) -> DataFrame:
         """
         Infers the classes of some samples.
@@ -115,6 +108,54 @@ class NetGen:
             data[classes[i]] = probabilities[:, i]
 
         return data
+
+    def __optimize(self, name: str, x: Any, y: Any, train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any],
+                   timeout: int, kind: ClassifierType, model: Dict[str, Any], best: float, verbose: bool) -> \
+            Tuple[Dict[str, Any], float]:
+        """
+        Optimizes a new classifier.
+
+        :param name: the name of the model type
+        :param x: the input values to use
+        :param y: the output values to use
+        :param train: the training function; it receives in input a trial object, the input and output training values
+                      and returns the classifier itself
+        :param timeout: the timeout in seconds
+        :param kind: the classifier type
+        :param model: the best model so far
+        :param best: the best score so far
+        :param verbose: toggles the verbosity
+        :return: a tuple where the first element is the best model and the second element is the best score
+        """
+
+        if verbose:
+            print(self.__terminal.darkorange("optimizing %s..." % name))
+
+        classifier, study = optimize("extra trees study", x, y, train, timeout=timeout, verbose=verbose)
+
+        if study.best_value > best:
+            best = study.best_value
+            model = {
+                    "classifier": classifier,
+                    "type":       kind
+            }
+            print("new best classifier: %s" % name)
+
+        return model, best
+
+    @staticmethod
+    def get_classes(model_name: str) -> Sequence[str]:
+        """
+        Retrieves the classes of a classifier.
+
+        :param model_name: the file name of the model
+        :return: the classes of the classifier
+        """
+
+        model = load(model_name)
+
+        # noinspection PyUnresolvedReferences
+        return model["classifier"].classes_
 
     def infer(self, model_name: str, target: str) -> DataFrame:
         """
@@ -195,6 +236,7 @@ class NetGen:
 
         random_forests = self.__configuration.getboolean("models", "random_forests")
         extra_trees = self.__configuration.getboolean("models", "extra_trees")
+        svms = self.__configuration.getboolean("models", "svms")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
 
@@ -217,7 +259,7 @@ class NetGen:
                 print("%30s: %6d sequences, %7d timesteps" % ("total", len(data), sum([len(i) for i in data])))
             data_set[name] = data
 
-        if random_forests or extra_trees:
+        if random_forests or extra_trees or svms:
             if verbose:
                 print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
 
@@ -233,24 +275,16 @@ class NetGen:
 
             model = {}
             best = -inf
-            if random_forests:
-                if verbose:
-                    print(self.__terminal.darkorange("optimizing random forests..."))
-                classifier, study = optimize("random forests study", train_x, train_y, train_random_forest,
-                                             timeout=timeout, verbose=verbose)
-                model["classifier"] = classifier
-                model["type"] = ClassifierType.COMBINATORIAL_TABLE
-                best = study.best_value
-                print("new best classifier: random forest")
-            if extra_trees:
-                if verbose:
-                    print(self.__terminal.darkorange("optimizing extra-trees..."))
-                classifier, study = optimize("extra trees study", train_x, train_y, train_extra_trees,
-                                             timeout=timeout, verbose=verbose)
-                if study.best_value > best:
-                    model["classifier"] = classifier
-                    model["type"] = ClassifierType.COMBINATORIAL_TABLE
-                    best = study.best_value
-                    print("new best classifier: extra-trees")
+            with catch_warnings():
+                simplefilter("ignore")
+                if random_forests:
+                    model, best = self.__optimize("random forest", train_x, train_y, train_random_forest, timeout,
+                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                if extra_trees:
+                    model, best = self.__optimize("extra-trees", train_x, train_y, train_extra_trees, timeout,
+                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                if svms:
+                    model, best = self.__optimize("bagging classifier of SVMs", train_x, train_y, train_svm, timeout,
+                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
             return model, train_x, test_x, train_y, test_y
