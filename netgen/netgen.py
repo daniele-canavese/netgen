@@ -32,6 +32,7 @@ from sklearn.model_selection import train_test_split
 
 from netgen.ml import to_dataframe
 from netgen.ml import train_extra_trees
+from netgen.ml import train_knn
 from netgen.ml import train_random_forest
 from netgen.ml import train_svm
 from netgen.net import TstatAnalyzer
@@ -237,6 +238,7 @@ class NetGen:
         random_forests = self.__configuration.getboolean("models", "random_forests")
         extra_trees = self.__configuration.getboolean("models", "extra_trees")
         svms = self.__configuration.getboolean("models", "svms")
+        knns = self.__configuration.getboolean("models", "knns")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
 
@@ -259,7 +261,7 @@ class NetGen:
                 print("%30s: %6d sequences, %7d timesteps" % ("total", len(data), sum([len(i) for i in data])))
             data_set[name] = data
 
-        if random_forests or extra_trees or svms:
+        if random_forests or extra_trees or svms or knns:
             if verbose:
                 print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
 
@@ -285,6 +287,9 @@ class NetGen:
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if svms:
                     model, best = self.__optimize("bagging classifier of SVMs", train_x, train_y, train_svm, timeout,
+                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                if knns:
+                    model, best = self.__optimize("kNN", train_x, train_y, train_knn, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
             return model, train_x, test_x, train_y, test_y

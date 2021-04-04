@@ -1,5 +1,5 @@
 """
-Random forests stuff.
+SVMs stuff.
 """
 from typing import Union
 
