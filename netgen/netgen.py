@@ -16,6 +16,7 @@ from typing import Tuple
 from blessed import Terminal
 from joblib import load
 from numpy import argmax
+from numpy import inf
 from ops import optimize
 from pandas import DataFrame
 from pandas import concat
@@ -24,6 +25,7 @@ from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
 
 from netgen.ml import to_dataframe
+from netgen.ml import train_extra_trees
 from netgen.ml import train_random_forest
 from netgen.net import TstatAnalyzer
 
@@ -192,6 +194,7 @@ class NetGen:
         """
 
         random_forests = self.__configuration.getboolean("models", "random_forests")
+        extra_trees = self.__configuration.getboolean("models", "extra_trees")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
 
@@ -214,7 +217,7 @@ class NetGen:
                 print("%30s: %6d sequences, %7d timesteps" % ("total", len(data), sum([len(i) for i in data])))
             data_set[name] = data
 
-        if random_forests:
+        if random_forests or extra_trees:
             if verbose:
                 print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
 
@@ -226,14 +229,28 @@ class NetGen:
             if verbose:
                 print("training: %7d samples" % len(train_x))
                 print("    test: %7d samples" % len(test_x))
+                print("   total: %7d samples" % len(x))
 
             model = {}
+            best = -inf
             if random_forests:
                 if verbose:
                     print(self.__terminal.darkorange("optimizing random forests..."))
-                classifier, study = optimize("random forest study", train_x, train_y, train_random_forest,
+                classifier, study = optimize("random forests study", train_x, train_y, train_random_forest,
                                              timeout=timeout, verbose=verbose)
                 model["classifier"] = classifier
                 model["type"] = ClassifierType.COMBINATORIAL_TABLE
+                best = study.best_value
+                print("new best classifier: random forest")
+            if extra_trees:
+                if verbose:
+                    print(self.__terminal.darkorange("optimizing extra-trees..."))
+                classifier, study = optimize("extra trees study", train_x, train_y, train_extra_trees,
+                                             timeout=timeout, verbose=verbose)
+                if study.best_value > best:
+                    model["classifier"] = classifier
+                    model["type"] = ClassifierType.COMBINATORIAL_TABLE
+                    best = study.best_value
+                    print("new best classifier: extra-trees")
 
             return model, train_x, test_x, train_y, test_y

@@ -1,5 +1,5 @@
 """
-Random forests stuff.
+Extra-trees stuff.
 """
 from typing import Union
 
@@ -7,12 +7,14 @@ from optuna import Trial
 from optuna.trial import FrozenTrial
 from pandas import DataFrame
 from pandas import Series
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.tree import ExtraTreeClassifier
 
 
-def train_random_forest(trial: Union[Trial, FrozenTrial], x: DataFrame, y: Series) -> RandomForestClassifier:
+# noinspection DuplicatedCode
+def train_extra_trees(trial: Union[Trial, FrozenTrial], x: DataFrame, y: Series) -> ExtraTreeClassifier:
     """
-    Trains a random forest.
+    Trains an extra-trees.
 
     :param trial: the trial to use
     :param x: the input data
@@ -32,13 +34,13 @@ def train_random_forest(trial: Union[Trial, FrozenTrial], x: DataFrame, y: Serie
     else:
         n_jobs = -1
 
-    classifier = RandomForestClassifier(class_weight="balanced", bootstrap=False, n_jobs=n_jobs,
-                                        n_estimators=n_estimators,
-                                        criterion=criterion,
-                                        max_depth=max_depth,
-                                        min_samples_split=min_samples_split,
-                                        min_samples_leaf=min_samples_leaf,
-                                        max_features=max_features)
+    classifier = ExtraTreesClassifier(class_weight="balanced", n_jobs=n_jobs,
+                                      n_estimators=n_estimators,
+                                      criterion=criterion,
+                                      max_depth=max_depth,
+                                      min_samples_split=min_samples_split,
+                                      min_samples_leaf=min_samples_leaf,
+                                      max_features=max_features)
     classifier.fit(x, y)
 
     return classifier
