@@ -220,15 +220,15 @@ class NetGen:
         if verbose:
             print(self.__terminal.darkorange("generating the report..."))
         report = ClassificationReport("NetGen report")
-        report.set_classification_data("IDS", "training set", train)
-        report.set_classification_data("IDS", "test set", test)
+        report.set_classification_data("analyzer", "training set", train)
+        report.set_classification_data("analyzer", "test set", test)
         if not exists(folder):
             mkdir(folder)
         report.render(folder)
 
     def train(self, verbose: bool = True) -> Tuple[Dict[str, Any], DataFrame, DataFrame, DataFrame, DataFrame]:
         """
-        Generates a new IDS.
+        Generates a new traffic analyzer.
 
         :param verbose: toggles the verbosity
         :return: the trained model and four dataframes corresponding to the training and test set inputs and the

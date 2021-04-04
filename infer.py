@@ -1,5 +1,5 @@
 """
-Runs an existing IDS.
+Runs an existing traffic analyzer.
 """
 
 from argparse import ArgumentParser
@@ -11,7 +11,7 @@ from blessed import Terminal
 from netgen import NetGen
 
 # Parses the input arguments.
-parser = ArgumentParser(description="Runs an IDS.")
+parser = ArgumentParser(description="Runs a traffic analyzer.")
 parser.add_argument("--quiet", action="store_true", help="disables the logs")
 parser.add_argument("--show", help="shows only the flow with these (comma separated) classes")
 parser.add_argument("--config", default="netgen.conf", help="the name of the configuration file")

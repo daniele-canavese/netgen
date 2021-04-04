@@ -11,7 +11,7 @@ from joblib import dump
 from netgen import NetGen
 
 # Parses the input arguments.
-parser = ArgumentParser(description="Trains a new IDS.")
+parser = ArgumentParser(description="Trains a new traffic analyzer.")
 parser.add_argument("--quiet", action="store_true", help="disables the logs")
 parser.add_argument("--test", default="test", help="sets the test folder")
 parser.add_argument("--config", default="netgen.conf", help="the name of the configuration file")
