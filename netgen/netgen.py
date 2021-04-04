@@ -235,10 +235,10 @@ class NetGen:
                  training and test set outputs
         """
 
-        random_forests = self.__configuration.getboolean("models", "random_forests")
-        extra_trees = self.__configuration.getboolean("models", "extra_trees")
-        svms = self.__configuration.getboolean("models", "svms")
-        knns = self.__configuration.getboolean("models", "knns")
+        random_forest = self.__configuration.get("models", "random_forest")
+        extra_trees = self.__configuration.get("models", "extra_trees")
+        svm = self.__configuration.get("models", "svm")
+        knn = self.__configuration.get("models", "knn")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
 
@@ -261,7 +261,17 @@ class NetGen:
                 print("%30s: %6d sequences, %7d timesteps" % ("total", len(data), sum([len(i) for i in data])))
             data_set[name] = data
 
-        if random_forests or extra_trees or svms or knns:
+        timesteps = 0
+        for i in data_set.values():
+            timesteps += sum([len(j) for j in i])
+        train_timesteps = timesteps * (1 - test_fraction)
+
+        random_forest = train_timesteps <= 1000000 if random_forest == "auto" else bool(random_forest)
+        extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else bool(extra_trees)
+        svm = train_timesteps <= 1000 if svm == "auto" else bool(svm)
+        knn = train_timesteps <= 1000 if knn == "auto" else bool(knn)
+
+        if random_forest or extra_trees or svm or knn:
             if verbose:
                 print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
 
@@ -279,16 +289,16 @@ class NetGen:
             best = -inf
             with catch_warnings():
                 simplefilter("ignore")
-                if random_forests:
+                if random_forest:
                     model, best = self.__optimize("random forest", train_x, train_y, train_random_forest, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if extra_trees:
                     model, best = self.__optimize("extra-trees", train_x, train_y, train_extra_trees, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
-                if svms:
+                if svm:
                     model, best = self.__optimize("bagging classifier of SVMs", train_x, train_y, train_svm, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
-                if knns:
+                if knn:
                     model, best = self.__optimize("kNN", train_x, train_y, train_knn, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
