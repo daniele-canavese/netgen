@@ -30,8 +30,11 @@ from quill_ml import ClassificationReport
 from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
 
+from netgen.ml import infer_fully_connected
+from netgen.ml import to_2d_tensor
 from netgen.ml import to_dataframe
 from netgen.ml import train_extra_trees
+from netgen.ml import train_fully_connected
 from netgen.ml import train_knn
 from netgen.ml import train_random_forest
 from netgen.ml import train_svm
@@ -44,6 +47,7 @@ class ClassifierType(Enum):
     """
 
     COMBINATORIAL_TABLE = "combinatorial_table"
+    COMBINATORIAL_TENSOR = "combinatorial_tensor"
 
 
 class NetGen:
@@ -111,8 +115,8 @@ class NetGen:
         return data
 
     def __optimize(self, name: str, x: Any, y: Any, train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any],
-                   timeout: int, kind: ClassifierType, model: Dict[str, Any], best: float, verbose: bool) -> \
-            Tuple[Dict[str, Any], float]:
+                   infer: Optional[Callable[[Any, Any], Any]], timeout: int, kind: ClassifierType,
+                   model: Dict[str, Any], best: float, verbose: bool) -> Tuple[Dict[str, Any], float]:
         """
         Optimizes a new classifier.
 
@@ -121,6 +125,7 @@ class NetGen:
         :param y: the output values to use
         :param train: the training function; it receives in input a trial object, the input and output training values
                       and returns the classifier itself
+        :param infer: the infer function; sets to None to use the default one
         :param timeout: the timeout in seconds
         :param kind: the classifier type
         :param model: the best model so far
@@ -130,9 +135,9 @@ class NetGen:
         """
 
         if verbose:
-            print(self.__terminal.darkorange("optimizing %s..." % name))
+            print(self.__terminal.darkorange("optimizing a %s..." % name))
 
-        classifier, study = optimize("extra trees study", x, y, train, timeout=timeout, verbose=verbose)
+        classifier, study = optimize("extra trees study", x, y, train, infer=infer, timeout=timeout, verbose=verbose)
 
         if study.best_value > best:
             best = study.best_value
@@ -140,7 +145,7 @@ class NetGen:
                     "classifier": classifier,
                     "type":       kind
             }
-            print("new best classifier: %s" % name)
+            print("the new best classifier is a %s" % name)
 
         return model, best
 
@@ -178,15 +183,18 @@ class NetGen:
         else:
             data_set = self.__analyzer.sniff(target)
 
-        x = None
+        results = None
+        features = self.__get_features(data_set[0].columns.to_list())
         if classifier_type == ClassifierType.COMBINATORIAL_TABLE:
-            x, _ = to_dataframe({"?": data_set})
+            original, x, _ = to_dataframe({"?": data_set}, features)
+        elif classifier_type == ClassifierType.COMBINATORIAL_TENSOR:
+            original, x, _ = to_2d_tensor({"?": data_set}, features)
 
-        if len(x) > 0:
-            results = self.__infer(classifier, x[self.__get_features(x.columns.to_list())], None)
-            results = concat((x[id_fields], results), axis=1)
-        else:
-            results = DataFrame()
+            if len(original) > 0:
+                results = self.__infer(classifier, x, None)
+                results = concat((original[id_fields], results), axis=1)
+            else:
+                results = DataFrame()
 
         return results
 
@@ -226,6 +234,7 @@ class NetGen:
             mkdir(folder)
         report.render(folder)
 
+    # noinspection DuplicatedCode
     def train(self, verbose: bool = True) -> Tuple[Dict[str, Any], DataFrame, DataFrame, DataFrame, DataFrame]:
         """
         Generates a new traffic analyzer.
@@ -239,6 +248,7 @@ class NetGen:
         extra_trees = self.__configuration.get("models", "extra_trees")
         svm = self.__configuration.get("models", "svm")
         knn = self.__configuration.get("models", "knn")
+        fully_connected = self.__configuration.get("models", "fully_connected")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
 
@@ -266,40 +276,63 @@ class NetGen:
             timesteps += sum([len(j) for j in i])
         train_timesteps = timesteps * (1 - test_fraction)
 
-        random_forest = train_timesteps <= 1000000 if random_forest == "auto" else bool(random_forest)
-        extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else bool(extra_trees)
-        svm = train_timesteps <= 1000 if svm == "auto" else bool(svm)
-        knn = train_timesteps <= 1000 if knn == "auto" else bool(knn)
+        random_forest = train_timesteps <= 1000000 if random_forest == "auto" else random_forest == "true"
+        extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else extra_trees == "true"
+        svm = train_timesteps <= 1000 if svm == "auto" else svm == "true"
+        knn = train_timesteps <= 1000 if knn == "auto" else knn == "true"
+        fully_connected = (10000 <= train_timesteps <= 1000000
+                           if fully_connected == "auto" else fully_connected == "true")
+
+        features = self.__get_features(list(data_set.values())[0][0].columns.to_list())
+        model = {}
+        train_x = None
+        train_y = None
+        test_x = None
+        test_y = None
+        best = -inf
 
         if random_forest or extra_trees or svm or knn:
             if verbose:
                 print(self.__terminal.darkorange("creating the tables for the combinatorial models..."))
-
-            x, y = to_dataframe(data_set)
-            features = self.__get_features(x.columns.to_list())
-
-            train_x, test_x, train_y, test_y = train_test_split(x[features], y, train_size=1 - test_fraction,
+            _, x, y = to_dataframe(data_set, features)
+            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
                                                                 stratify=y)
             if verbose:
                 print("training: %7d samples" % len(train_x))
                 print("    test: %7d samples" % len(test_x))
                 print("   total: %7d samples" % len(x))
 
-            model = {}
-            best = -inf
             with catch_warnings():
                 simplefilter("ignore")
                 if random_forest:
-                    model, best = self.__optimize("random forest", train_x, train_y, train_random_forest, timeout,
+                    model, best = self.__optimize("random forest", train_x, train_y, train_random_forest, None, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if extra_trees:
-                    model, best = self.__optimize("extra-trees", train_x, train_y, train_extra_trees, timeout,
+                    model, best = self.__optimize("extra-trees", train_x, train_y, train_extra_trees, None, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if svm:
-                    model, best = self.__optimize("bagging classifier of SVMs", train_x, train_y, train_svm, timeout,
-                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                    model, best = self.__optimize("bagging classifier of SVMs", train_x, train_y, train_svm, None,
+                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if knn:
-                    model, best = self.__optimize("kNN", train_x, train_y, train_knn, timeout,
+                    model, best = self.__optimize("kNN", train_x, train_y, train_knn, None, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
-            return model, train_x, test_x, train_y, test_y
+        if fully_connected:
+            if verbose:
+                print(self.__terminal.darkorange("creating the 2D tensors for the combinatorial models..."))
+            _, x, y = to_2d_tensor(data_set, features)
+            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
+                                                                stratify=y)
+            if verbose:
+                print("training: %7d samples" % len(train_x))
+                print("    test: %7d samples" % len(test_x))
+                print("   total: %7d samples" % len(x))
+
+            with catch_warnings():
+                simplefilter("ignore")
+                if fully_connected:
+                    model, best = self.__optimize("fully connected neural network", train_x, train_y,
+                                                  train_fully_connected, infer_fully_connected, timeout,
+                                                  ClassifierType.COMBINATORIAL_TENSOR, model, best, verbose)
+
+        return model, train_x, test_x, train_y, test_y

@@ -41,7 +41,7 @@ if args.ui:
               terminal.magenta]
     print(terminal.clear() + terminal.home() + terminal.move_xy(0, 0))
     for index, label in enumerate(netgen.get_classes(args.model)):
-        labels[label] = colors[index % len(colors)] + label + terminal.normal
+        labels[label] = colors[index % len(colors)] + "%15s" % label + terminal.normal
 
 while True:
     results = netgen.infer(args.model, args.target)
@@ -68,7 +68,7 @@ while True:
                         rows.pop(0)
                 r = [
                         *["%15s" % i for i in row[0:index]],
-                        "%15s" % labels[row["inferred"]],
+                        labels[row["inferred"]],
                         "%15.3f" % row["probability"]
                 ]
                 print(terminal.move_xy(0, line) + "  ".join(r), end="")
