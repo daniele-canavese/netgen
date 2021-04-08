@@ -6,6 +6,8 @@ from configparser import ConfigParser
 from enum import Enum
 from glob import glob
 from os import mkdir
+from os.path import basename
+from os.path import dirname
 from os.path import exists
 from typing import Any
 from typing import Callable
@@ -32,6 +34,8 @@ from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from torch import Tensor
+from yaml import CBaseLoader
+from yaml import load as yaml_load
 
 from netgen.ml import infer_fully_connected
 from netgen.ml import to_2d_tensor
@@ -278,14 +282,19 @@ class NetGen:
             report.render(folder)
 
     # noinspection DuplicatedCode
-    def train(self, verbose: bool = True) -> Tuple[Dict[str, Any], DataFrame, DataFrame, DataFrame, DataFrame]:
+    def train(self, data_file: str, verbose: bool = True) -> \
+            Tuple[Dict[str, Any], DataFrame, DataFrame, DataFrame, DataFrame]:
         """
         Generates a new traffic analyzer.
 
+        :param data_file: the name of the data file
         :param verbose: toggles the verbosity
         :return: the trained model and four dataframes corresponding to the training and test set inputs and the
                  training and test set outputs
         """
+
+        with open(data_file) as f:
+            data = yaml_load(f, Loader=CBaseLoader)
 
         random_forest = self.__configuration.get("models", "random_forest")
         extra_trees = self.__configuration.get("models", "extra_trees")
@@ -294,25 +303,39 @@ class NetGen:
         fully_connected = self.__configuration.get("models", "fully_connected")
         timeout = self.__configuration.getint("models", "timeout")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
+        id_fields = self.__configuration.get("data_set", "id_fields").split()
 
         data_set = {}
 
         if verbose:
             print(self.__terminal.tomato("TRAINING..."))
-        for name in self.__configuration["classes"]:
+        folder = dirname(data_file)
+        if folder == "":
+            folder = "."
+        for name, captures in data.items():
+            class_data_set = []
             if verbose:
                 print(self.__terminal.gold("analyzing the captures for the class \"%s\"..." % name))
-            data = []
-            for pcap in sorted(glob(self.__configuration.get("classes", name), recursive=True)):
-                if verbose:
-                    print("%30s:" % pcap, end="")
-                t = self.__analyzer.analyze(pcap)
-                if verbose:
-                    print(" %6d sequences, %7d timesteps" % (len(t), sum([len(i) for i in t])))
-                data.extend(t)
+            for entry, rules in captures.items():
+                rules = set(rules)  # For a faster search later.
+                for capture in sorted(glob("%s/%s" % (folder, entry), recursive=True)):
+                    if verbose:
+                        print("%30s:" % basename(capture), end="")
+                    t = self.__analyzer.analyze(capture)
+                    valid = []
+                    if len(rules) > 0:
+                        for i in t:
+                            if " ".join(i.loc[0, id_fields].astype(str)) in rules:
+                                valid.append(i)
+                    else:
+                        valid = t
+                    class_data_set.extend(valid)
+                    if verbose:
+                        print(" %6d sequences, %7d timesteps" % (len(valid), sum([len(i) for i in valid])))
             if verbose:
-                print("%30s: %6d sequences, %7d timesteps" % ("total", len(data), sum([len(i) for i in data])))
-            data_set[name] = data
+                print("%30s: %6d sequences, %7d timesteps" %
+                      ("total", len(class_data_set), sum([len(i) for i in class_data_set])))
+            data_set[name] = class_data_set
 
         timesteps = 0
         for i in data_set.values():

@@ -172,7 +172,7 @@ class TstatAnalyzer(Analyzer):
         """
 
         if self.__sniffing_initialized:
-            self.__libtstat.tstat_export_core_statistics_close(1)
+            self.__libtstat.tstat_export_core_statistics_close(0)
 
 
 class TCPCoreStatistics(Structure):
