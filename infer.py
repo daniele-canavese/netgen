@@ -70,7 +70,7 @@ while True:
                 r = [
                         *["%15s" % i for i in row[0:index]],
                         labels[row["inferred"]],
-                        "%15.3f" % row["probability"]
+                        "%15.3f" % (row["probability"] * 100)
                 ]
                 print(terminal.move_xy(0, line) + "  ".join(r), end="")
         else:

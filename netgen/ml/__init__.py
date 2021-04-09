@@ -12,3 +12,4 @@ from .lstm import train_lstm
 from .nn import infer_neural_network
 from .random_forests import train_random_forest
 from .svm import train_svm
+from .transformer import train_transformer

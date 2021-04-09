@@ -49,6 +49,7 @@ from netgen.ml import train_knn
 from netgen.ml import train_lstm
 from netgen.ml import train_random_forest
 from netgen.ml import train_svm
+from netgen.ml import train_transformer
 from netgen.net import TstatAnalyzer
 
 
@@ -327,6 +328,7 @@ class NetGen:
         knn = self.__configuration.get("models", "knn")
         fully_connected = self.__configuration.get("models", "fully_connected")
         lstm = self.__configuration.get("models", "lstm")
+        transformer = self.__configuration.get("models", "transformer")
         timeout = self.__configuration.getint("models", "timeout")
         max_timesteps = self.__configuration.getint("models", "max_timesteps")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
@@ -379,6 +381,7 @@ class NetGen:
         fully_connected = (10000 <= train_timesteps <= 1000000
                            if fully_connected == "auto" else fully_connected == "true")
         lstm = (10000 <= train_sequences <= 1000000 if lstm == "auto" else lstm == "true")
+        transformer = (10000 <= train_sequences <= 1000000 if transformer == "auto" else transformer == "true")
 
         features = self.__get_features(list(data_set.values())[0][0].columns.to_list())
         model = {}
@@ -432,7 +435,7 @@ class NetGen:
                                                   train_fully_connected, infer_neural_network, timeout,
                                                   ClassifierType.COMBINATORIAL_TENSOR, model, best, verbose)
 
-        if lstm:
+        if lstm or transformer:
             if verbose:
                 print(self.__terminal.gold("creating the 2D tensors for the sequential models..."))
             _, x, y = to_2d_tensors(data_set, features, max_timesteps)
@@ -448,6 +451,10 @@ class NetGen:
                 if lstm:
                     model, best = self.__optimize("LSTM neural network", True, train_x, train_y,
                                                   train_lstm, infer_neural_network, timeout,
+                                                  ClassifierType.SEQUENTIAL_TENSOR, model, best, verbose)
+                if transformer:
+                    model, best = self.__optimize("transformer neural network", True, train_x, train_y,
+                                                  train_transformer, infer_neural_network, timeout,
                                                   ClassifierType.SEQUENTIAL_TENSOR, model, best, verbose)
 
         return model, train_x, test_x, train_y, test_y
