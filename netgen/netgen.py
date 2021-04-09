@@ -1,6 +1,7 @@
 """
 The amazing NetGen class.
 """
+from collections import Iterable
 from collections import Sequence
 from configparser import ConfigParser
 from enum import Enum
@@ -22,6 +23,7 @@ from warnings import simplefilter
 from blessed import Terminal
 from joblib import load
 from numpy import argmax
+from numpy import array
 from numpy import inf
 from ops import optimize
 from optuna import Trial
@@ -37,12 +39,14 @@ from torch import Tensor
 from yaml import CBaseLoader
 from yaml import load as yaml_load
 
-from netgen.ml import infer_fully_connected
+from netgen.ml import infer_neural_network
 from netgen.ml import to_2d_tensor
+from netgen.ml import to_2d_tensors
 from netgen.ml import to_dataframe
 from netgen.ml import train_extra_trees
 from netgen.ml import train_fully_connected
 from netgen.ml import train_knn
+from netgen.ml import train_lstm
 from netgen.ml import train_random_forest
 from netgen.ml import train_svm
 from netgen.net import TstatAnalyzer
@@ -55,6 +59,7 @@ class ClassifierType(Enum):
 
     COMBINATORIAL_TABLE = "combinatorial_table"
     COMBINATORIAL_TENSOR = "combinatorial_tensor"
+    SEQUENTIAL_TENSOR = "sequential_tensor"
 
 
 class NetGen:
@@ -146,7 +151,11 @@ class NetGen:
         if scale:
             print(self.__terminal.gold("scaling the input data..."))
             scaler = StandardScaler()
-            scaler.fit(x)
+            if isinstance(x, Iterable):
+                for i in x:
+                    scaler.partial_fit(i)
+            else:
+                scaler.fit(x)
             x = self.__scale(scaler, x)
         else:
             scaler = None
@@ -177,14 +186,24 @@ class NetGen:
         :return: the (optionally) scaled data
         """
 
-        xx = scaler.transform(x)
-
         if isinstance(x, DataFrame):
+            xx = scaler.transform(x)
             xx = DataFrame(data=xx, columns=x.columns, index=x.index)
         elif isinstance(x, Series):
+            xx = scaler.transform(x)
             xx = Series(data=xx, index=x.index)
         elif isinstance(x, Tensor):
+            xx = scaler.transform(x)
             xx = Tensor(xx)
+        elif isinstance(x, Iterable):
+            xx = []
+            for i in x:
+                xx.append(NetGen.__scale(scaler, i))
+            with catch_warnings():
+                simplefilter(action="ignore", category=FutureWarning)
+                xx = array(xx, dtype=object)
+        else:
+            xx = None
 
         return xx
 
@@ -212,6 +231,7 @@ class NetGen:
         """
 
         id_fields = self.__configuration.get("data_set", "id_fields").split()
+        max_timesteps = self.__configuration.getint("models", "max_timesteps")
 
         model = load(model_name)
         scaler = model["scaler"]
@@ -224,11 +244,16 @@ class NetGen:
             data_set = self.__analyzer.sniff(target)
 
         results = None
-        features = self.__get_features(data_set[0].columns.to_list())
+        if len(data_set) > 0:
+            features = self.__get_features(data_set[0].columns.to_list())
+        else:
+            features = []
         if classifier_type == ClassifierType.COMBINATORIAL_TABLE:
             original, x, _ = to_dataframe({"?": data_set}, features)
         elif classifier_type == ClassifierType.COMBINATORIAL_TENSOR:
             original, x, _ = to_2d_tensor({"?": data_set}, features)
+        elif classifier_type == ClassifierType.SEQUENTIAL_TENSOR:
+            original, x, _ = to_2d_tensors({"?": data_set}, features, max_timesteps)
 
             x = self.__scale(scaler, x)
 
@@ -301,7 +326,9 @@ class NetGen:
         svm = self.__configuration.get("models", "svm")
         knn = self.__configuration.get("models", "knn")
         fully_connected = self.__configuration.get("models", "fully_connected")
+        lstm = self.__configuration.get("models", "lstm")
         timeout = self.__configuration.getint("models", "timeout")
+        max_timesteps = self.__configuration.getint("models", "max_timesteps")
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
         id_fields = self.__configuration.get("data_set", "id_fields").split()
 
@@ -338,9 +365,12 @@ class NetGen:
             data_set[name] = class_data_set
 
         timesteps = 0
+        sequences = 0
         for i in data_set.values():
             timesteps += sum([len(j) for j in i])
+            sequences += len(i)
         train_timesteps = timesteps * (1 - test_fraction)
+        train_sequences = sequences * (1 - test_fraction)
 
         random_forest = train_timesteps <= 1000000 if random_forest == "auto" else random_forest == "true"
         extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else extra_trees == "true"
@@ -348,6 +378,7 @@ class NetGen:
         knn = train_timesteps <= 1000 if knn == "auto" else knn == "true"
         fully_connected = (10000 <= train_timesteps <= 1000000
                            if fully_connected == "auto" else fully_connected == "true")
+        lstm = (10000 <= train_sequences <= 1000000 if lstm == "auto" else lstm == "true")
 
         features = self.__get_features(list(data_set.values())[0][0].columns.to_list())
         model = {}
@@ -398,7 +429,25 @@ class NetGen:
                 simplefilter("ignore")
                 if fully_connected:
                     model, best = self.__optimize("fully connected neural network", True, train_x, train_y,
-                                                  train_fully_connected, infer_fully_connected, timeout,
+                                                  train_fully_connected, infer_neural_network, timeout,
                                                   ClassifierType.COMBINATORIAL_TENSOR, model, best, verbose)
+
+        if lstm:
+            if verbose:
+                print(self.__terminal.gold("creating the 2D tensors for the sequential models..."))
+            _, x, y = to_2d_tensors(data_set, features, max_timesteps)
+            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
+                                                                stratify=y)
+            if verbose:
+                print("training: %7d samples" % len(train_x))
+                print("    test: %7d samples" % len(test_x))
+                print("   total: %7d samples" % len(x))
+
+            with catch_warnings():
+                simplefilter("ignore")
+                if lstm:
+                    model, best = self.__optimize("LSTM neural network", True, train_x, train_y,
+                                                  train_lstm, infer_neural_network, timeout,
+                                                  ClassifierType.SEQUENTIAL_TENSOR, model, best, verbose)
 
         return model, train_x, test_x, train_y, test_y

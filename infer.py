@@ -3,6 +3,7 @@ Runs an existing traffic analyzer.
 """
 
 from argparse import ArgumentParser
+from colorsys import hls_to_rgb
 from configparser import ConfigParser
 from os.path import exists
 
@@ -37,11 +38,11 @@ terminal = Terminal()
 rows = []
 labels = {}
 if args.ui:
-    colors = [terminal.red, terminal.orange, terminal.yellow, terminal.cyan, terminal.blue, terminal.purple,
-              terminal.magenta]
     print(terminal.clear() + terminal.home() + terminal.move_xy(0, 0))
-    for index, label in enumerate(netgen.get_classes(args.model)):
-        labels[label] = colors[index % len(colors)] + "%15s" % label + terminal.normal
+    classes = netgen.get_classes(args.model)
+    for index, label in enumerate(classes):
+        r, g, b = hls_to_rgb(index / len(classes), 0.6, 0.9)
+        labels[label] = terminal.color_rgb(int(r * 255), int(g * 255), int(b * 255)) + "%15s" % label + terminal.normal
 
 while True:
     results = netgen.infer(args.model, args.target)

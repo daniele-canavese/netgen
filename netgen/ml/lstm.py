@@ -1,5 +1,5 @@
 """
-Fully connected neural network stuff.
+LSTM stuff.
 """
 
 from typing import Union
@@ -13,10 +13,9 @@ from skorch import NeuralNetClassifier
 from torch import LongTensor
 from torch import Tensor
 from torch.cuda import is_available
-from torch.nn import Dropout
+from torch.nn import LSTM
 from torch.nn import Linear
 from torch.nn import Module
-from torch.nn import ReLU
 from torch.nn import Sequential
 from torch.nn import Softmax
 from torch.optim import Adam
@@ -24,7 +23,7 @@ from torch.optim import Adam
 from netgen.ml.nn import NeuralNetworkClassifier
 
 
-class FullyConnectedModule(Module):
+class LSTMModule(Module):
     """
     A fully connected neural network module.
     """
@@ -39,21 +38,12 @@ class FullyConnectedModule(Module):
         :param p: the dropout probability
         """
 
-        super(FullyConnectedModule, self).__init__()
+        super(LSTMModule, self).__init__()
 
         modules = []
-        if layers == 1:
-            modules.append(Linear(inputs, outputs))
-            modules.append(Softmax(dim=-1))
-        else:
-            modules.append(Linear(inputs, neurons_per_layer))
-            modules.append(ReLU())
-            for _ in range(layers - 2):
-                modules.append(Linear(neurons_per_layer, neurons_per_layer))
-                modules.append(ReLU())
-                modules.append(Dropout(p))
-            modules.append(Linear(neurons_per_layer, outputs))
-            modules.append(Softmax(dim=-1))
+        self.__lstm = LSTM(inputs, neurons_per_layer, layers, dropout=p)
+        self.__linear = Linear(neurons_per_layer, outputs)
+        self.__softmax = Softmax(dim=-1)
 
         self.__modules = Sequential(*modules)
 
@@ -64,12 +54,17 @@ class FullyConnectedModule(Module):
         :return: the resulting tensor
         """
 
-        return self.__modules(x)
+        y, _ = self.__lstm(x)
+        y = y[:, -1, :]
+        y = self.__linear(y)
+        y = self.__softmax(y)
+
+        return y
 
 
-def train_fully_connected(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) -> NeuralNetClassifier:
+def train_lstm(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) -> NeuralNetClassifier:
     """
-    Trains a fully connected neural network.
+    Trains a LSTM neural network.
 
     :param trial: the trial to use
     :param x: the input data
@@ -79,15 +74,15 @@ def train_fully_connected(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series
     """
 
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("categorical", (256, 512, 1024))
-    layers = trial.suggest_int("layers", 2, 10)
-    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (128, 256, 512))
+    batch_size = trial.suggest_categorical("categorical", (32, 64, 128))
+    layers = trial.suggest_int("layers", 1, 4)
+    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (10, 100))
 
     classes = sorted(y.unique().tolist())
     class_weights = compute_class_weight("balanced", classes=classes, y=y)
     y = LongTensor(LabelEncoder().fit_transform(y.to_numpy()))
-    classifier = NeuralNetworkClassifier(module=FullyConnectedModule,
-                                         module__inputs=x.shape[1], module__outputs=len(classes),
+    classifier = NeuralNetworkClassifier(module=LSTMModule,
+                                         module__inputs=x[0].shape[1], module__outputs=len(classes),
                                          classes=classes,
                                          train_split=None,
                                          optimizer=Adam,
