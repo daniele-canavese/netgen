@@ -164,7 +164,10 @@ class NetGen:
         if verbose:
             print(self.__terminal.gold("optimizing a %s..." % name))
 
-        classifier, study = optimize("extra trees study", x, y, train, infer=infer, timeout=timeout, verbose=verbose)
+        if infer is not None:
+            classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout, verbose=verbose)
+        else:
+            classifier, study = optimize("%s study" % name, x, y, train, timeout=timeout, verbose=verbose)
 
         if study.best_value > best:
             best = study.best_value
