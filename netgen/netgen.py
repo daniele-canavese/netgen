@@ -39,7 +39,6 @@ from torch import Tensor
 from yaml import CBaseLoader
 from yaml import load as yaml_load
 
-from netgen.ml import infer_neural_network
 from netgen.ml import to_2d_tensor
 from netgen.ml import to_2d_tensors
 from netgen.ml import to_dataframe
@@ -51,6 +50,21 @@ from netgen.ml import train_random_forest
 from netgen.ml import train_svm
 from netgen.ml import train_transformer
 from netgen.net import TstatAnalyzer
+
+
+def infer(classifier: Any, x: Any) -> Any:
+    """
+    Infers a classification.
+
+    This method tries to use a method called infer in the classifier and if it does not exists it uses the predict
+    method. If the obtained results are tuples, then only the first element of the tuple is returned.
+
+    :param classifier: the classifier to use
+    :param x: the input data
+    :return: the inferred classes
+    """
+
+    return classifier.predict(x)
 
 
 class ClassifierType(Enum):
@@ -100,7 +114,7 @@ class NetGen:
         return features
 
     @staticmethod
-    def __infer(classifier: ClassifierMixin, x: DataFrame, y: Optional[DataFrame]) -> DataFrame:
+    def __infer(classifier: ClassifierMixin, x: DataFrame, y: Optional[Series]) -> DataFrame:
         """
         Infers the classes of some samples.
 
@@ -129,7 +143,7 @@ class NetGen:
 
     def __optimize(self, name: str, scale: bool, x: Any, y: Any,
                    train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any],
-                   infer: Optional[Callable[[Any, Any], Any]], timeout: int, kind: ClassifierType,
+                   timeout: int, kind: ClassifierType,
                    model: Dict[str, Any], best: float, verbose: bool) -> Tuple[Dict[str, Any], float]:
         """
         Optimizes a new classifier.
@@ -140,7 +154,6 @@ class NetGen:
         :param y: the output values to use
         :param train: the training function; it receives in input a trial object, the input and output training values
                       and returns the classifier itself
-        :param infer: the infer function; sets to None to use the default one
         :param timeout: the timeout in seconds
         :param kind: the classifier type
         :param model: the best model so far
@@ -152,11 +165,11 @@ class NetGen:
         if scale:
             print(self.__terminal.gold("scaling the input data..."))
             scaler = StandardScaler()
-            if isinstance(x, Iterable):
+            if isinstance(x, (DataFrame, Tensor)):
+                scaler.fit(x)
+            else:
                 for i in x:
                     scaler.partial_fit(i)
-            else:
-                scaler.fit(x)
             x = self.__scale(scaler, x)
         else:
             scaler = None
@@ -164,10 +177,7 @@ class NetGen:
         if verbose:
             print(self.__terminal.gold("optimizing a %s..." % name))
 
-        if infer is not None:
-            classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout, verbose=verbose)
-        else:
-            classifier, study = optimize("%s study" % name, x, y, train, timeout=timeout, verbose=verbose)
+        classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout, verbose=verbose)
 
         if study.best_value > best:
             best = study.best_value
@@ -190,7 +200,9 @@ class NetGen:
         :return: the (optionally) scaled data
         """
 
-        if isinstance(x, DataFrame):
+        if scaler is None:
+            xx = x
+        elif isinstance(x, DataFrame):
             xx = scaler.transform(x)
             xx = DataFrame(data=xx, columns=x.columns, index=x.index)
         elif isinstance(x, Series):
@@ -207,7 +219,7 @@ class NetGen:
                 simplefilter(action="ignore", category=FutureWarning)
                 xx = array(xx, dtype=object)
         else:
-            xx = None
+            xx = x
 
         return xx
 
@@ -225,52 +237,59 @@ class NetGen:
         # noinspection PyUnresolvedReferences
         return model["classifier"].classes_
 
-    def infer(self, model_name: str, target: str) -> DataFrame:
+    def infer(self, model: Union[Dict[str, Any], str], target: Union[str, Any],
+              classes: Optional[Sequence[str]] = None) -> DataFrame:
         """
         Performs the classification of some traffic.
 
-        :param model_name: the file name of the model
-        :param target: the pcap file to analyze or the interface to sniff
+        :param model: the file name of the model of the model itself
+        :param target: the pcap file to analyze, the interface to sniff or the data itself
+        :param classes: the expected list of classes; sets to None if there is no such list
         :return: the classification of the data
         """
 
         id_fields = self.__configuration.get("data_set", "id_fields").split()
         max_timesteps = self.__configuration.getint("models", "max_timesteps")
 
-        model = load(model_name)
+        if isinstance(model, str):
+            model = load(model)
         scaler = model["scaler"]
         classifier = model["classifier"]
         classifier_type = model["type"]
 
-        if exists(target):
-            data_set = self.__analyzer.analyze(target)
+        if isinstance(target, str):
+            if exists(target):
+                data_set = self.__analyzer.analyze(target)
+            else:
+                data_set = self.__analyzer.sniff(target)
         else:
-            data_set = self.__analyzer.sniff(target)
+            data_set = target
 
-        results = None
         if len(data_set) > 0:
             features = self.__get_features(data_set[0].columns.to_list())
         else:
             features = []
         if classifier_type == ClassifierType.COMBINATORIAL_TABLE:
-            original, x, _ = to_dataframe({"?": data_set}, features)
+            original, x, y = to_dataframe(data_set, classes, features)
         elif classifier_type == ClassifierType.COMBINATORIAL_TENSOR:
-            original, x, _ = to_2d_tensor({"?": data_set}, features)
+            original, x, y = to_2d_tensor(data_set, classes, features)
         elif classifier_type == ClassifierType.SEQUENTIAL_TENSOR:
-            original, x, _ = to_2d_tensors({"?": data_set}, features, max_timesteps)
+            original, x, y = to_2d_tensors(data_set, classes, features, max_timesteps)
+        else:
+            raise RuntimeError("Unsupported classifier type")
 
-            x = self.__scale(scaler, x)
+        x = self.__scale(scaler, x)
 
-            if len(original) > 0:
-                results = self.__infer(classifier, x, None)
-                results = concat((original[id_fields], results), axis=1)
-            else:
-                results = DataFrame()
+        if len(original) > 0:
+            results = self.__infer(classifier, x, y)
+            results = concat((original[id_fields], results), axis=1)
+        else:
+            results = DataFrame()
 
         return results
 
-    def test(self, model: Dict[str, Any], train_x: DataFrame, test_x: DataFrame, train_y: DataFrame,
-             test_y: DataFrame, folder: str, verbose: bool = True) -> None:
+    def test(self, model: Dict[str, Any], train_x: Any, test_x: Any, train_y: Sequence[str], test_y: Sequence[str],
+             folder: str, verbose: bool = True) -> None:
         """
         Tests a model.
 
@@ -283,21 +302,20 @@ class NetGen:
         :param verbose: toggles the verbosity
         """
 
+        id_fields = self.__configuration.get("data_set", "id_fields").split()
+
         if verbose:
             print(self.__terminal.tomato("TESTING..."))
 
-        scaler = model["scaler"]
-        classifier = model["classifier"]
-
         if verbose:
             print(self.__terminal.gold("analyzing the training set..."))
-        train_x = self.__scale(scaler, train_x)
-        train = self.__infer(classifier, train_x, train_y)
+        train = self.infer(model, train_x, train_y)
+        train = train.iloc[:, len(id_fields):]
 
         if verbose:
             print(self.__terminal.gold("analyzing the test set..."))
-        test_x = self.__scale(scaler, test_x)
-        test = self.__infer(classifier, test_x, test_y)
+        test = self.infer(model, test_x, test_y)
+        test = test.iloc[:, len(id_fields):]
 
         if verbose:
             print(self.__terminal.gold("generating the report..."))
@@ -311,8 +329,7 @@ class NetGen:
             report.render(folder)
 
     # noinspection DuplicatedCode
-    def train(self, data_file: str, verbose: bool = True) -> \
-            Tuple[Dict[str, Any], DataFrame, DataFrame, DataFrame, DataFrame]:
+    def train(self, data_file: str, verbose: bool = True) -> Tuple[Dict[str, Any], Any, Any, Any, Any]:
         """
         Generates a new traffic analyzer.
 
@@ -337,7 +354,8 @@ class NetGen:
         test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
         id_fields = self.__configuration.get("data_set", "id_fields").split()
 
-        data_set = {}
+        data_set_x = []
+        data_set_y = []
 
         if verbose:
             print(self.__terminal.tomato("TRAINING..."))
@@ -362,20 +380,25 @@ class NetGen:
                     else:
                         valid = t
                     class_data_set.extend(valid)
+                    data_set_x.extend(class_data_set)
+                    data_set_y.extend([name] * len(class_data_set))
                     if verbose:
                         print(" %6d sequences, %7d timesteps" % (len(valid), sum([len(i) for i in valid])))
-            if verbose:
+            if verbose and len(captures) > 1:
                 print("%30s: %6d sequences, %7d timesteps" %
                       ("total", len(class_data_set), sum([len(i) for i in class_data_set])))
-            data_set[name] = class_data_set
 
-        timesteps = 0
-        sequences = 0
-        for i in data_set.values():
-            timesteps += sum([len(j) for j in i])
-            sequences += len(i)
-        train_timesteps = timesteps * (1 - test_fraction)
-        train_sequences = sequences * (1 - test_fraction)
+        if verbose:
+            print(self.__terminal.gold("splitting into training and test sets..."))
+        train_x, test_x, train_y, test_y = train_test_split(data_set_x, data_set_y, train_size=1 - test_fraction,
+                                                            stratify=data_set_y)
+        if verbose:
+            print("training: %7d sequences" % len(train_x))
+            print("    test: %7d sequences" % len(test_x))
+            print("   total: %7d sequences" % len(data_set_x))
+
+        train_sequences = len(train_x)
+        train_timesteps = sum([len(i) for i in train_x])
 
         random_forest = train_timesteps <= 1000000 if random_forest == "auto" else random_forest == "true"
         extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else extra_trees == "true"
@@ -386,78 +409,59 @@ class NetGen:
         lstm = (10000 <= train_sequences <= 1000000 if lstm == "auto" else lstm == "true")
         transformer = (10000 <= train_sequences <= 1000000 if transformer == "auto" else transformer == "true")
 
-        features = self.__get_features(list(data_set.values())[0][0].columns.to_list())
+        features = self.__get_features(train_x[0].columns.to_list())
         model = {}
-        train_x = None
-        train_y = None
-        test_x = None
-        test_y = None
         best = -inf
 
         if random_forest or extra_trees or svm or knn:
             if verbose:
                 print(self.__terminal.gold("creating the tables for the combinatorial models..."))
-            _, x, y = to_dataframe(data_set, features)
-            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
-                                                                stratify=y)
-            if verbose:
-                print("training: %7d samples" % len(train_x))
-                print("    test: %7d samples" % len(test_x))
-                print("   total: %7d samples" % len(x))
+            _, train_x2, train_y2 = to_dataframe(train_x, train_y, features)
+            _, test_x2, test_y2 = to_dataframe(test_x, test_y, features)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if random_forest:
-                    model, best = self.__optimize("random forest", False, train_x, train_y, train_random_forest, None,
+                    model, best = self.__optimize("random forest", False, train_x2, train_y2, train_random_forest,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if extra_trees:
-                    model, best = self.__optimize("extra-trees", False, train_x, train_y, train_extra_trees, None,
+                    model, best = self.__optimize("extra-trees", False, train_x2, train_y2, train_extra_trees,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if svm:
-                    model, best = self.__optimize("bagging classifier of SVMs", True, train_x, train_y, train_svm, None,
+                    model, best = self.__optimize("bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if knn:
-                    model, best = self.__optimize("kNN", True, train_x, train_y, train_knn, None, timeout,
+                    model, best = self.__optimize("kNN", True, train_x2, train_y2, train_knn, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
         if fully_connected:
             if verbose:
                 print(self.__terminal.gold("creating the 2D tensors for the combinatorial models..."))
-            _, x, y = to_2d_tensor(data_set, features)
-            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
-                                                                stratify=y)
-            if verbose:
-                print("training: %7d samples" % len(train_x))
-                print("    test: %7d samples" % len(test_x))
-                print("   total: %7d samples" % len(x))
+            _, train_x2, train_y2 = to_2d_tensor(train_x, train_y, features)
+            _, test_x2, test_y2 = to_2d_tensor(test_x, test_y, features)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if fully_connected:
-                    model, best = self.__optimize("fully connected neural network", True, train_x, train_y,
-                                                  train_fully_connected, infer_neural_network, timeout,
-                                                  ClassifierType.COMBINATORIAL_TENSOR, model, best, verbose)
+                    model, best = self.__optimize("fully connected neural network", True, train_x2, train_y2,
+                                                  train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR,
+                                                  model, best, verbose)
 
         if lstm or transformer:
             if verbose:
                 print(self.__terminal.gold("creating the 2D tensors for the sequential models..."))
-            _, x, y = to_2d_tensors(data_set, features, max_timesteps)
-            train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction,
-                                                                stratify=y)
-            if verbose:
-                print("training: %7d samples" % len(train_x))
-                print("    test: %7d samples" % len(test_x))
-                print("   total: %7d samples" % len(x))
+            _, train_x2, train_y2 = to_2d_tensors(train_x, train_y, features, max_timesteps)
+            _, test_x2, test_y2 = to_2d_tensors(test_x, test_y, features, max_timesteps)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if lstm:
-                    model, best = self.__optimize("LSTM neural network", True, train_x, train_y,
-                                                  train_lstm, infer_neural_network, timeout,
-                                                  ClassifierType.SEQUENTIAL_TENSOR, model, best, verbose)
+                    model, best = self.__optimize("LSTM neural network", True, train_x2, train_y2,
+                                                  train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model, best,
+                                                  verbose)
                 if transformer:
-                    model, best = self.__optimize("transformer neural network", True, train_x, train_y,
-                                                  train_transformer, infer_neural_network, timeout,
-                                                  ClassifierType.SEQUENTIAL_TENSOR, model, best, verbose)
+                    model, best = self.__optimize("transformer neural network", True, train_x2, train_y2,
+                                                  train_transformer, timeout, ClassifierType.SEQUENTIAL_TENSOR, model,
+                                                  best, verbose)
 
         return model, train_x, test_x, train_y, test_y

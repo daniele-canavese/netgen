@@ -10,21 +10,6 @@ from skorch import NeuralNetClassifier
 from torch import Tensor
 
 
-def infer_neural_network(classifier: Any, x: Any) -> Any:
-    """
-    Infers a classification.
-
-    This method tries to use a method called infer in the classifier and if it does not exists it uses the predict
-    method. If the obtained results are tuples, then only the first element of the tuple is returned.
-
-    :param classifier: the classifier to use
-    :param x: the input data
-    :return: the inferred classes
-    """
-
-    return classifier.predict(x)
-
-
 class NeuralNetworkClassifier(NeuralNetClassifier):
     """
     A LSTM neural network classifier.
