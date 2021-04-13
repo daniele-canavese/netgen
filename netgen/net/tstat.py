@@ -84,6 +84,8 @@ class TstatAnalyzer(Analyzer):
         for flow_id in dictionary.keys():
             dictionary[flow_id] = DataFrame(columns=self.__dataframe_columns, data=dictionary[flow_id])
 
+        self.__del__()
+
         return list(dictionary.values())
 
     def __read_tstat_chunk(self, dictionary: Dict[int, Any]) -> bool:
@@ -173,6 +175,7 @@ class TstatAnalyzer(Analyzer):
 
         if self.__sniffing_initialized:
             self.__libtstat.tstat_export_core_statistics_close(0)
+            self.__sniffing_initialized = False
 
 
 class TCPCoreStatistics(Structure):
