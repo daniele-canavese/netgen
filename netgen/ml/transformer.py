@@ -107,7 +107,7 @@ class TransformerModule(Module):
 
 def train_transformer(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) -> NeuralNetClassifier:
     """
-    Trains a LSTM neural network.
+    Trains a transformer neural network.
 
     :param trial: the trial to use
     :param x: the input data

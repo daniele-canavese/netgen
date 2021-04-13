@@ -1,6 +1,7 @@
 """
 The amazing NetGen class.
 """
+
 from collections import Iterable
 from collections import Sequence
 from configparser import ConfigParser
@@ -163,7 +164,7 @@ class NetGen:
         """
 
         if scale:
-            print(self.__terminal.gold("scaling the input data..."))
+            self.print_subtitle("scaling the input data...")
             scaler = StandardScaler()
             if isinstance(x, (DataFrame, Tensor)):
                 scaler.fit(x)
@@ -175,7 +176,7 @@ class NetGen:
             scaler = None
 
         if verbose:
-            print(self.__terminal.gold("optimizing a %s..." % name))
+            self.print_subtitle("optimizing %s..." % name)
 
         classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout, verbose=verbose)
 
@@ -186,7 +187,7 @@ class NetGen:
                     "classifier": classifier,
                     "type":       kind
             }
-            print("the new best classifier is a %s" % name)
+            print("the new best classifier is %s" % name)
 
         return model, best
 
@@ -305,20 +306,20 @@ class NetGen:
         id_fields = self.__configuration.get("data_set", "id_fields").split()
 
         if verbose:
-            print(self.__terminal.tomato("TESTING..."))
+            self.print_title("TESTING...")
 
         if verbose:
-            print(self.__terminal.gold("analyzing the training set..."))
+            self.print_subtitle("analyzing the training set...")
         train = self.infer(model, train_x, train_y)
         train = train.iloc[:, len(id_fields):]
 
         if verbose:
-            print(self.__terminal.gold("analyzing the test set..."))
+            self.print_subtitle("analyzing the test set...")
         test = self.infer(model, test_x, test_y)
         test = test.iloc[:, len(id_fields):]
 
         if verbose:
-            print(self.__terminal.gold("generating the report..."))
+            self.print_subtitle("generating the report...")
         with catch_warnings():
             simplefilter("ignore")
             report = ClassificationReport("NetGen report")
@@ -358,14 +359,14 @@ class NetGen:
         data_set_y = []
 
         if verbose:
-            print(self.__terminal.tomato("TRAINING..."))
+            self.print_title("TRAINING...")
         folder = dirname(data_file)
         if folder == "":
             folder = "."
         for name, captures in data.items():
             class_data_set = []
             if verbose:
-                print(self.__terminal.gold("analyzing the captures for the class \"%s\"..." % name))
+                self.print_subtitle("analyzing the captures for the class \"%s\"..." % name)
             for entry, rules in captures.items():
                 rules = set(rules)  # For a faster search later.
                 for capture in sorted(glob("%s/%s" % (folder, entry), recursive=True)):
@@ -389,7 +390,7 @@ class NetGen:
                       ("total", len(class_data_set), sum([len(i) for i in class_data_set])))
 
         if verbose:
-            print(self.__terminal.gold("splitting into training and test sets..."))
+            self.print_subtitle("splitting into training and test sets...")
         train_x, test_x, train_y, test_y = train_test_split(data_set_x, data_set_y, train_size=1 - test_fraction,
                                                             stratify=data_set_y)
         if verbose:
@@ -400,14 +401,14 @@ class NetGen:
         train_sequences = len(train_x)
         train_timesteps = sum([len(i) for i in train_x])
 
-        random_forest = train_timesteps <= 1000000 if random_forest == "auto" else random_forest == "true"
-        extra_trees = train_timesteps > 1000000 if extra_trees == "auto" else extra_trees == "true"
         svm = train_timesteps <= 1000 if svm == "auto" else svm == "true"
-        knn = train_timesteps <= 1000 if knn == "auto" else knn == "true"
-        fully_connected = (10000 <= train_timesteps <= 1000000
+        knn = train_timesteps <= 100000 if knn == "auto" else knn == "true"
+        random_forest = train_timesteps <= 10000000 if random_forest == "auto" else random_forest == "true"
+        fully_connected = (10000 <= train_timesteps <= 10000000
                            if fully_connected == "auto" else fully_connected == "true")
-        lstm = (10000 <= train_sequences <= 1000000 if lstm == "auto" else lstm == "true")
-        transformer = (10000 <= train_sequences <= 1000000 if transformer == "auto" else transformer == "true")
+        lstm = (10000 <= train_sequences <= 10000000 if lstm == "auto" else lstm == "true")
+        transformer = (10000 <= train_sequences <= 10000000 if transformer == "auto" else transformer == "true")
+        extra_trees = train_timesteps >= 100000 if extra_trees == "auto" else extra_trees == "true"
 
         features = self.__get_features(train_x[0].columns.to_list())
         model = {}
@@ -415,53 +416,71 @@ class NetGen:
 
         if random_forest or extra_trees or svm or knn:
             if verbose:
-                print(self.__terminal.gold("creating the tables for the combinatorial models..."))
+                self.print_subtitle("creating the tables for the combinatorial models...")
             _, train_x2, train_y2 = to_dataframe(train_x, train_y, features)
             _, test_x2, test_y2 = to_dataframe(test_x, test_y, features)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if random_forest:
-                    model, best = self.__optimize("random forest", False, train_x2, train_y2, train_random_forest,
+                    model, best = self.__optimize("a random forest", False, train_x2, train_y2, train_random_forest,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if extra_trees:
-                    model, best = self.__optimize("extra-trees", False, train_x2, train_y2, train_extra_trees,
+                    model, best = self.__optimize("an extra-trees", False, train_x2, train_y2, train_extra_trees,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if svm:
-                    model, best = self.__optimize("bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
+                    model, best = self.__optimize("a bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
                                                   timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
                 if knn:
-                    model, best = self.__optimize("kNN", True, train_x2, train_y2, train_knn, timeout,
+                    model, best = self.__optimize("a kNN classifier", True, train_x2, train_y2, train_knn, timeout,
                                                   ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
 
         if fully_connected:
             if verbose:
-                print(self.__terminal.gold("creating the 2D tensors for the combinatorial models..."))
+                self.print_subtitle("creating the 2D tensors for the combinatorial models...")
             _, train_x2, train_y2 = to_2d_tensor(train_x, train_y, features)
             _, test_x2, test_y2 = to_2d_tensor(test_x, test_y, features)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if fully_connected:
-                    model, best = self.__optimize("fully connected neural network", True, train_x2, train_y2,
+                    model, best = self.__optimize("a fully connected neural network", True, train_x2, train_y2,
                                                   train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR,
                                                   model, best, verbose)
 
         if lstm or transformer:
             if verbose:
-                print(self.__terminal.gold("creating the 2D tensors for the sequential models..."))
+                self.print_subtitle("creating the 2D tensors for the sequential models...")
             _, train_x2, train_y2 = to_2d_tensors(train_x, train_y, features, max_timesteps)
             _, test_x2, test_y2 = to_2d_tensors(test_x, test_y, features, max_timesteps)
 
             with catch_warnings():
                 simplefilter("ignore")
                 if lstm:
-                    model, best = self.__optimize("LSTM neural network", True, train_x2, train_y2,
+                    model, best = self.__optimize("an LSTM neural network", True, train_x2, train_y2,
                                                   train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model, best,
                                                   verbose)
                 if transformer:
-                    model, best = self.__optimize("transformer neural network", True, train_x2, train_y2,
+                    model, best = self.__optimize("a transformer neural network", True, train_x2, train_y2,
                                                   train_transformer, timeout, ClassifierType.SEQUENTIAL_TENSOR, model,
                                                   best, verbose)
 
         return model, train_x, test_x, train_y, test_y
+
+    def print_title(self, text: str) -> None:
+        """
+        Prints a title.
+
+        :param text: the text to print
+        """
+
+        print(self.__terminal.tomato(text))
+
+    def print_subtitle(self, text: str) -> None:
+        """
+        Prints a sub-title.
+
+        :param text: the text to print
+        """
+
+        print(self.__terminal.darkgoldenrod1(text))

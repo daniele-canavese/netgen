@@ -28,6 +28,6 @@ terminal = Terminal()
 netgen = NetGen(configuration)
 model, train_x, test_x, train_y, test_y = netgen.train(args.data, not args.quiet)
 if not args.quiet:
-    print(terminal.gold("saving the model to %s..." % args.model))
+    netgen.print_subtitle("saving the model to %s..." % args.model)
 dump(model, args.model)
 netgen.test(model, train_x, test_x, train_y, test_y, args.test, not args.quiet)
