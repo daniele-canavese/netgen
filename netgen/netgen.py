@@ -435,7 +435,7 @@ class NetGen:
 
         if self.__verbose:
             if level == LogLevel.CHAPTER:
-                text = self.__terminal.bold(self.__terminal.tomato(text))
+                text = self.__terminal.bold(self.__terminal.gold(text))
             elif level == LogLevel.SECTION:
                 text = self.__terminal.darkgoldenrod1(text)
             print(text)

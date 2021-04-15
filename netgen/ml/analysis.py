@@ -39,7 +39,7 @@ def to_dataframe(x: Sequence[DataFrame], y: Optional[Sequence[str]], features: S
     else:
         x = DataFrame()
     if len(labels) > 0:
-        y = Series(labels)
+        y = Series(labels, dtype="category")
     else:
         y = Series()
 
@@ -59,7 +59,7 @@ def to_2d_tensor(x: Sequence[DataFrame], y: Optional[Sequence[str]], features: S
     """
 
     original, x, y = to_dataframe(x, y, features)
-    x = Tensor(x.to_numpy())
+    x = Tensor(x.to_numpy().astype("float32"))
 
     return original, x, y
 
@@ -81,7 +81,7 @@ def to_2d_tensors(x: Sequence[DataFrame], y: Optional[Sequence[str]], features: 
     new_x = []
     for index, i in enumerate(x):
         original.append(i.iloc[-1].to_dict())
-        v = Tensor(i[features].to_numpy())
+        v = Tensor(i[features].to_numpy().astype("float32"))
         if v.shape[0] >= max_timesteps:
             v = v[0:max_timesteps, :]
         else:
