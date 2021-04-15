@@ -7,10 +7,12 @@ from collections import Sequence
 from configparser import ConfigParser
 from enum import Enum
 from glob import glob
+from math import ceil
 from os import mkdir
 from os.path import basename
 from os.path import dirname
 from os.path import exists
+from random import choices
 from typing import Any
 from typing import Callable
 from typing import Dict
@@ -68,6 +70,16 @@ def infer(classifier: Any, x: Any) -> Any:
     return classifier.predict(x)
 
 
+class LogLevel(Enum):
+    """
+    The log level.
+    """
+
+    CHAPTER = "chapter"
+    SECTION = "section"
+    TEXT = "text"
+
+
 class ClassifierType(Enum):
     """
     The classifier types.
@@ -83,9 +95,12 @@ class NetGen:
     The amazing NetGen class.
     """
 
-    def __init__(self, configuration: ConfigParser):
+    def __init__(self, configuration: ConfigParser, verbose: bool):
         """
         Creates a new NetGen model.
+
+        :param configuration: the configuration
+        :param verbose: toggles the verbose mode
         """
 
         packets = configuration.getint("data_set", "packets")
@@ -93,6 +108,7 @@ class NetGen:
         self.__configuration = configuration
         self.__analyzer = TstatAnalyzer(self.__configuration, packets)
         self.__terminal = Terminal()
+        self.__verbose = verbose
 
     def __get_features(self, features: List[str]):
         """
@@ -104,11 +120,6 @@ class NetGen:
 
         id_fields = self.__configuration.get("data_set", "id_fields").split()
         for i in id_fields:
-            if i in features:
-                features.remove(i)
-
-        excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
-        for i in excluded_fields:
             if i in features:
                 features.remove(i)
 
@@ -145,7 +156,7 @@ class NetGen:
     def __optimize(self, name: str, scale: bool, x: Any, y: Any,
                    train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any],
                    timeout: int, kind: ClassifierType,
-                   model: Dict[str, Any], best: float, verbose: bool) -> Tuple[Dict[str, Any], float]:
+                   model: Dict[str, Any], best: float) -> Tuple[Dict[str, Any], float]:
         """
         Optimizes a new classifier.
 
@@ -159,12 +170,11 @@ class NetGen:
         :param kind: the classifier type
         :param model: the best model so far
         :param best: the best score so far
-        :param verbose: toggles the verbosity
         :return: a tuple where the first element is the best model and the second element is the best score
         """
 
         if scale:
-            self.print_subtitle("scaling the input data...")
+            self.__log(LogLevel.SECTION, "scaling the input data...")
             scaler = StandardScaler()
             if isinstance(x, (DataFrame, Tensor)):
                 scaler.fit(x)
@@ -175,10 +185,10 @@ class NetGen:
         else:
             scaler = None
 
-        if verbose:
-            self.print_subtitle("optimizing %s..." % name)
+        self.__log(LogLevel.SECTION, "optimizing %s..." % name)
 
-        classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout, verbose=verbose)
+        classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout,
+                                     verbose=self.__verbose)
 
         if study.best_value > best:
             best = study.best_value
@@ -187,7 +197,7 @@ class NetGen:
                     "classifier": classifier,
                     "type":       kind
             }
-            print("the new best classifier is %s" % name)
+            self.__log(LogLevel.TEXT, "the new best classifier is %s" % name)
 
         return model, best
 
@@ -290,7 +300,7 @@ class NetGen:
         return results
 
     def test(self, model: Dict[str, Any], train_x: Any, test_x: Any, train_y: Sequence[str], test_y: Sequence[str],
-             folder: str, verbose: bool = True) -> None:
+             folder: str) -> None:
         """
         Tests a model.
 
@@ -300,26 +310,21 @@ class NetGen:
         :param train_y: the training set outputs
         :param test_y: the test set outputs
         :param folder: the test folder
-        :param verbose: toggles the verbosity
         """
 
         id_fields = self.__configuration.get("data_set", "id_fields").split()
 
-        if verbose:
-            self.print_title("TESTING...")
+        self.__log(LogLevel.CHAPTER, "testing...")
 
-        if verbose:
-            self.print_subtitle("analyzing the training set...")
+        self.__log(LogLevel.SECTION, "analyzing the training set...")
         train = self.infer(model, train_x, train_y)
         train = train.iloc[:, len(id_fields):]
 
-        if verbose:
-            self.print_subtitle("analyzing the test set...")
+        self.__log(LogLevel.SECTION, "analyzing the test set...")
         test = self.infer(model, test_x, test_y)
         test = test.iloc[:, len(id_fields):]
 
-        if verbose:
-            self.print_subtitle("generating the report...")
+        self.__log(LogLevel.SECTION, "generating the report...")
         with catch_warnings():
             simplefilter("ignore")
             report = ClassificationReport("NetGen report")
@@ -330,18 +335,123 @@ class NetGen:
             report.render(folder)
 
     # noinspection DuplicatedCode
-    def train(self, data_file: str, verbose: bool = True) -> Tuple[Dict[str, Any], Any, Any, Any, Any]:
+    def train(self, data_file: str) -> Tuple[Dict[str, Any], Any, Any, Any, Any]:
         """
         Generates a new traffic analyzer.
 
         :param data_file: the name of the data file
-        :param verbose: toggles the verbosity
         :return: the trained model and four dataframes corresponding to the training and test set inputs and the
                  training and test set outputs
         """
 
-        with open(data_file) as f:
-            data = yaml_load(f, Loader=CBaseLoader)
+        self.__log(LogLevel.CHAPTER, "training...")
+
+        x, y = self.__build_data_set(data_file)
+        train_x, test_x, train_y, test_y = self.__split_data_set(x, y)
+        model, train_x, test_x, train_y, test_y = self.__train(train_x, test_x, train_y, test_y)
+
+        return model, train_x, test_x, train_y, test_y
+
+    def __split_data_set(self, x: Sequence[DataFrame], y: Sequence[str]) -> \
+            Tuple[Sequence[DataFrame], Sequence[DataFrame], Sequence[str], Sequence[str]]:
+        """
+        Splits the data set into a training and test sets.
+
+        :param x: the name of the data file
+        :param y: toggles the verbosity
+        :return: a tuple where the first two elements are respectively the training and test input values and the last
+                 two elements are the training and test output values
+        """
+
+        test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
+
+        self.__log(LogLevel.SECTION, "splitting into training and test sets...")
+        train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction, stratify=y)
+        self.__log(LogLevel.TEXT, "training: %7d sequences" % len(train_x))
+        self.__log(LogLevel.TEXT, "    test: %7d sequences" % len(test_x))
+        self.__log(LogLevel.TEXT, "   total: %7d sequences" % len(x))
+
+        return train_x, test_x, train_y, test_y
+
+    def __build_data_set(self, data_file: str) -> Tuple[Sequence[DataFrame], Sequence[str]]:
+        """
+        Builds the initial data set.
+
+        :param data_file: the name of the data file
+        :return: a tuple where the first element are the input values and the second the output values
+        """
+
+        files_fraction = self.__configuration.getfloat("data_set", "files_fraction")
+        sequences_fraction = self.__configuration.getfloat("data_set", "sequences_fraction")
+        excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
+        id_fields = self.__configuration.get("data_set", "id_fields").split()
+        folder = dirname(data_file)
+
+        with open(data_file) as files:
+            data = yaml_load(files, Loader=CBaseLoader)
+
+        if folder == "":
+            folder = "."
+
+        x = []
+        y = []
+
+        for name, captures in data.items():  # Iterates over the classes.
+            files_count = 0
+            class_data_set = []
+            self.__log(LogLevel.SECTION, "analyzing the captures for the class \"%s\"..." % name)
+            for entry, rules in captures.items():  # Iterates over the entries.
+                rules = set(rules)  # For a faster search later.
+                files = sorted(glob("%s/%s" % (folder, entry), recursive=True))
+                if files_fraction < 1:
+                    files = choices(files, k=ceil(len(files) * files_fraction))
+                for capture in files:  # Iterates over the files.
+                    files_count += 1
+                    t = []
+                    for i in self.__analyzer.analyze(capture):
+                        d = i.drop(excluded_fields, axis=1)
+                        if len(rules) == 0 or " ".join(d.loc[0, id_fields].astype(str)) in rules:
+                            t.append(d)
+                    if sequences_fraction < 1:
+                        t = choices(t, k=ceil(len(t) * sequences_fraction))
+                    class_data_set.extend(t)
+                    self.__log(LogLevel.TEXT, "%30s: %6d sequences, %7d timesteps" %
+                               (basename(capture), len(t), sum([len(i) for i in t])))
+            if files_count > 1:
+                self.__log(LogLevel.TEXT, "%30s: %6d sequences, %7d timesteps, %3d files" %
+                           ("total", len(class_data_set), sum([len(i) for i in class_data_set]), files_count))
+            x.extend(class_data_set)
+            y.extend([name] * len(class_data_set))
+
+        return x, y
+
+    def __log(self, level: LogLevel, text: str) -> None:
+        """
+        Prints a log, if needed.
+
+        :param text: the text to print
+        :param level: the log level
+        """
+
+        if self.__verbose:
+            if level == LogLevel.CHAPTER:
+                text = self.__terminal.bold(self.__terminal.tomato(text))
+            elif level == LogLevel.SECTION:
+                text = self.__terminal.darkgoldenrod1(text)
+            print(text)
+
+    def __train(self, train_x: Sequence[DataFrame], test_x: Sequence[DataFrame], train_y: Sequence[str],
+                test_y: Sequence[str]) -> Tuple[Dict[str, Any], Any, Any, Sequence[str], Sequence[str]]:
+        """
+        Trains the models.
+
+        :param train_x: the input training values
+        :param test_x: the input test values
+        :param train_y: the output training values
+        :param test_y: the output test values
+        :return: a tuple where the first element is the best trained model and the other four elements are respectively
+                the training input values, the test input values, the training output values and the test output values
+        """
 
         random_forest = self.__configuration.get("models", "random_forest")
         extra_trees = self.__configuration.get("models", "extra_trees")
@@ -352,51 +462,6 @@ class NetGen:
         transformer = self.__configuration.get("models", "transformer")
         timeout = self.__configuration.getint("models", "timeout")
         max_timesteps = self.__configuration.getint("models", "max_timesteps")
-        test_fraction = self.__configuration.getfloat("data_set", "test_fraction")
-        id_fields = self.__configuration.get("data_set", "id_fields").split()
-
-        data_set_x = []
-        data_set_y = []
-
-        if verbose:
-            self.print_title("TRAINING...")
-        folder = dirname(data_file)
-        if folder == "":
-            folder = "."
-        for name, captures in data.items():
-            class_data_set = []
-            if verbose:
-                self.print_subtitle("analyzing the captures for the class \"%s\"..." % name)
-            for entry, rules in captures.items():
-                rules = set(rules)  # For a faster search later.
-                for capture in sorted(glob("%s/%s" % (folder, entry), recursive=True)):
-                    if verbose:
-                        print("%30s:" % basename(capture), end="")
-                    t = self.__analyzer.analyze(capture)
-                    valid = []
-                    if len(rules) > 0:
-                        for i in t:
-                            if " ".join(i.loc[0, id_fields].astype(str)) in rules:
-                                valid.append(i)
-                    else:
-                        valid = t
-                    class_data_set.extend(valid)
-                    data_set_x.extend(class_data_set)
-                    data_set_y.extend([name] * len(class_data_set))
-                    if verbose:
-                        print(" %6d sequences, %7d timesteps" % (len(valid), sum([len(i) for i in valid])))
-            if verbose and len(captures) > 1:
-                print("%30s: %6d sequences, %7d timesteps" %
-                      ("total", len(class_data_set), sum([len(i) for i in class_data_set])))
-
-        if verbose:
-            self.print_subtitle("splitting into training and test sets...")
-        train_x, test_x, train_y, test_y = train_test_split(data_set_x, data_set_y, train_size=1 - test_fraction,
-                                                            stratify=data_set_y)
-        if verbose:
-            print("training: %7d sequences" % len(train_x))
-            print("    test: %7d sequences" % len(test_x))
-            print("   total: %7d sequences" % len(data_set_x))
 
         train_sequences = len(train_x)
         train_timesteps = sum([len(i) for i in train_x])
@@ -404,6 +469,7 @@ class NetGen:
         svm = train_timesteps <= 1000 if svm == "auto" else svm == "true"
         knn = train_timesteps <= 100000 if knn == "auto" else knn == "true"
         random_forest = train_timesteps <= 10000000 if random_forest == "auto" else random_forest == "true"
+        extra_trees = train_timesteps >= 100000 if extra_trees == "auto" else extra_trees == "true"
         fully_connected = (10000 <= train_timesteps <= 10000000
                            if fully_connected == "auto" else fully_connected == "true")
         lstm = (10000 <= train_sequences <= 10000000 if lstm == "auto" else lstm == "true")
@@ -414,73 +480,46 @@ class NetGen:
         model = {}
         best = -inf
 
-        if random_forest or extra_trees or svm or knn:
-            if verbose:
-                self.print_subtitle("creating the tables for the combinatorial models...")
-            _, train_x2, train_y2 = to_dataframe(train_x, train_y, features)
-            _, test_x2, test_y2 = to_dataframe(test_x, test_y, features)
+        with catch_warnings():
+            simplefilter("ignore")
+            if random_forest or extra_trees or svm or knn:
+                self.__log(LogLevel.SECTION, "creating the tables for the combinatorial models...")
+                _, train_x2, train_y2 = to_dataframe(train_x, train_y, features)
+                _, test_x2, test_y2 = to_dataframe(test_x, test_y, features)
 
-            with catch_warnings():
-                simplefilter("ignore")
                 if random_forest:
                     model, best = self.__optimize("a random forest", False, train_x2, train_y2, train_random_forest,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
                 if extra_trees:
                     model, best = self.__optimize("an extra-trees", False, train_x2, train_y2, train_extra_trees,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
                 if svm:
                     model, best = self.__optimize("a bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
                 if knn:
                     model, best = self.__optimize("a kNN classifier", True, train_x2, train_y2, train_knn, timeout,
-                                                  ClassifierType.COMBINATORIAL_TABLE, model, best, verbose)
+                                                  ClassifierType.COMBINATORIAL_TABLE, model, best)
 
-        if fully_connected:
-            if verbose:
-                self.print_subtitle("creating the 2D tensors for the combinatorial models...")
-            _, train_x2, train_y2 = to_2d_tensor(train_x, train_y, features)
-            _, test_x2, test_y2 = to_2d_tensor(test_x, test_y, features)
+            if fully_connected:
+                self.__log(LogLevel.SECTION, "creating the 2D tensors for the combinatorial models...")
+                _, train_x2, train_y2 = to_2d_tensor(train_x, train_y, features)
+                _, test_x2, test_y2 = to_2d_tensor(test_x, test_y, features)
 
-            with catch_warnings():
-                simplefilter("ignore")
-                if fully_connected:
-                    model, best = self.__optimize("a fully connected neural network", True, train_x2, train_y2,
-                                                  train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR,
-                                                  model, best, verbose)
+                model, best = self.__optimize("a fully connected neural network", True, train_x2, train_y2,
+                                              train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR,
+                                              model, best)
 
-        if lstm or transformer:
-            if verbose:
-                self.print_subtitle("creating the 2D tensors for the sequential models...")
-            _, train_x2, train_y2 = to_2d_tensors(train_x, train_y, features, max_timesteps)
-            _, test_x2, test_y2 = to_2d_tensors(test_x, test_y, features, max_timesteps)
+            if lstm or transformer:
+                self.__log(LogLevel.SECTION, "creating the 2D tensors for the sequential models...")
+                _, train_x2, train_y2 = to_2d_tensors(train_x, train_y, features, max_timesteps)
+                _, test_x2, test_y2 = to_2d_tensors(test_x, test_y, features, max_timesteps)
 
-            with catch_warnings():
-                simplefilter("ignore")
                 if lstm:
                     model, best = self.__optimize("an LSTM neural network", True, train_x2, train_y2,
-                                                  train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model, best,
-                                                  verbose)
+                                                  train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model, best)
                 if transformer:
                     model, best = self.__optimize("a transformer neural network", True, train_x2, train_y2,
                                                   train_transformer, timeout, ClassifierType.SEQUENTIAL_TENSOR, model,
-                                                  best, verbose)
+                                                  best)
 
         return model, train_x, test_x, train_y, test_y
-
-    def print_title(self, text: str) -> None:
-        """
-        Prints a title.
-
-        :param text: the text to print
-        """
-
-        print(self.__terminal.tomato(text))
-
-    def print_subtitle(self, text: str) -> None:
-        """
-        Prints a sub-title.
-
-        :param text: the text to print
-        """
-
-        print(self.__terminal.darkgoldenrod1(text))

@@ -25,9 +25,8 @@ configuration.read(args.config)
 
 terminal = Terminal()
 
-netgen = NetGen(configuration)
-model, train_x, test_x, train_y, test_y = netgen.train(args.data, not args.quiet)
-if not args.quiet:
-    netgen.print_subtitle("saving the model to %s..." % args.model)
+# Trains! A lot of trains!
+netgen = NetGen(configuration, not args.quiet)
+model, train_x, test_x, train_y, test_y = netgen.train(args.data)
 dump(model, args.model)
-netgen.test(model, train_x, test_x, train_y, test_y, args.test, not args.quiet)
+netgen.test(model, train_x, test_x, train_y, test_y, args.test)

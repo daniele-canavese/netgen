@@ -1,7 +1,6 @@
 """
 Tstat class.
 """
-
 from collections import Sequence
 from configparser import ConfigParser
 from ctypes import CDLL
@@ -40,18 +39,49 @@ class TstatAnalyzer(Analyzer):
 
         self.__packets = packets
         self.__configuration = configuration
-
         # noinspection SpellCheckingInspection
-        self.__dataframe_columns = ["c2s_ip", "c2s_port", "c2s_packets", "c2s_reset_count", "c2s_ack_pkts",
-                                    "c2s_pureack_pkts", "c2s_unique_bytes", "c2s_data_pkts", "c2s_data_bytes",
-                                    "c2s_rexmit_pkts", "c2s_rexmit_bytes", "c2s_out_order_pkts", "c2s_syn_count",
-                                    "c2s_fin_count", "s2c_ip", "s2c_port", "s2c_packets", "s2c_reset_count",
-                                    "s2c_ack_pkts", "s2c_pureack_pkts", "s2c_unique_bytes", "s2c_data_pkts",
-                                    "s2c_data_bytes", "s2c_rexmit_pkts", "s2c_rexmit_bytes", "s2c_out_order_pkts",
-                                    "s2c_syn_count", "s2c_fin_count", "first_time", "last_time", "completion_time",
-                                    "c2s_payload_start_time", "c2s_payload_end_time", "c2s_ack_start_time",
-                                    "s2c_payload_start_time", "s2c_payload_end_time", "s2c_ack_start_time", "complete",
-                                    "reset", "nocomplete"]
+        self.__dataframe_columns = {
+                "c2s_ip":                 "category",
+                "c2s_port":               "uint16",
+                "c2s_packets":            "uint32",
+                "c2s_reset_count":        "uint32",
+                "c2s_ack_pkts":           "uint32",
+                "c2s_pureack_pkts":       "uint32",
+                "c2s_unique_bytes":       "uint64",
+                "c2s_data_pkts":          "uint32",
+                "c2s_data_bytes":         "uint64",
+                "c2s_rexmit_pkts":        "uint32",
+                "c2s_rexmit_bytes":       "uint64",
+                "c2s_out_order_pkts":     "uint32",
+                "c2s_syn_count":          "uint32",
+                "c2s_fin_count":          "uint32",
+                "s2c_ip":                 "category",
+                "s2c_port":               "uint16",
+                "s2c_packets":            "uint32",
+                "s2c_reset_count":        "uint32",
+                "s2c_ack_pkts":           "uint32",
+                "s2c_pureack_pkts":       "uint32",
+                "s2c_unique_bytes":       "uint64",
+                "s2c_data_pkts":          "uint32",
+                "s2c_data_bytes":         "uint64",
+                "s2c_rexmit_pkts":        "uint32",
+                "s2c_rexmit_bytes":       "uint64",
+                "s2c_out_order_pkts":     "uint32",
+                "s2c_syn_count":          "uint32",
+                "s2c_fin_count":          "uint32",
+                "first_time":             "float32",
+                "last_time":              "float32",
+                "completion_time":        "float32",
+                "c2s_payload_start_time": "float32",
+                "c2s_payload_end_time":   "float32",
+                "c2s_ack_start_time":     "float32",
+                "s2c_payload_start_time": "float32",
+                "s2c_payload_end_time":   "float32",
+                "s2c_ack_start_time":     "float32",
+                "complete":               "bool",
+                "reset":                  "bool",
+                "nocomplete":             "bool"
+        }
 
         # noinspection SpellCheckingInspection
         self.__libtstat = CDLL(self.__configuration.get("tstat", "library"))
@@ -79,12 +109,13 @@ class TstatAnalyzer(Analyzer):
         while result:
             result = self.__read_tstat_chunk(dictionary)
 
-        self.__libtstat.tstat_export_core_statistics_close(1)
+        self.__libtstat.tstat_export_core_statistics_close(0)
 
         for flow_id in dictionary.keys():
-            dictionary[flow_id] = DataFrame(columns=self.__dataframe_columns, data=dictionary[flow_id])
-
-        self.__del__()
+            d = DataFrame(columns=self.__dataframe_columns.keys(), data=dictionary[flow_id])
+            for column, kind in self.__dataframe_columns.items():
+                d[column] = d[column].astype(kind)
+            dictionary[flow_id] = d
 
         return list(dictionary.values())
 
