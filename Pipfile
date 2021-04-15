@@ -9,11 +9,20 @@ sklearn = "*"
 blessed = "*"
 torch = "*"
 skorch = "*"
-ops = { git = "https://github.com/daniele-canavese/ops.git", editable = true }
-quill = { git = "https://github.com/daniele-canavese/quill.git", editable = true }
-quill_ml = { git = "https://github.com/daniele-canavese/quill_ml.git", editable = true }
 
 [dev-packages]
 
 [requires]
 python_version = "3.9"
+
+[packages.ops]
+git = "https://github.com/daniele-canavese/ops.git"
+editable = true
+
+[packages.quill]
+git = "https://github.com/daniele-canavese/quill.git"
+editable = true
+
+[packages.quill_ml]
+git = "https://github.com/daniele-canavese/quill_ml.git"
+editable = true

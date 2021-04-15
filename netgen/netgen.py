@@ -118,8 +118,10 @@ class NetGen:
         :return: the list of input features
         """
 
+        excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
         id_fields = self.__configuration.get("data_set", "id_fields").split()
-        for i in id_fields:
+
+        for i in [*excluded_fields, *id_fields]:
             if i in features:
                 features.remove(i)
 
@@ -474,7 +476,6 @@ class NetGen:
                            if fully_connected == "auto" else fully_connected == "true")
         lstm = (10000 <= train_sequences <= 10000000 if lstm == "auto" else lstm == "true")
         transformer = (10000 <= train_sequences <= 10000000 if transformer == "auto" else transformer == "true")
-        extra_trees = train_timesteps >= 100000 if extra_trees == "auto" else extra_trees == "true"
 
         features = self.__get_features(train_x[0].columns.to_list())
         model = {}
