@@ -369,9 +369,12 @@ class NetGen:
 
         self.__log(LogLevel.SECTION, "splitting into training and test sets...")
         train_x, test_x, train_y, test_y = train_test_split(x, y, train_size=1 - test_fraction, stratify=y)
-        self.__log(LogLevel.TEXT, "training: %7d sequences" % len(train_x))
-        self.__log(LogLevel.TEXT, "    test: %7d sequences" % len(test_x))
-        self.__log(LogLevel.TEXT, "   total: %7d sequences" % len(x))
+        self.__log(LogLevel.TEXT, "training: %7d sequences, %7d timesteps" %
+                   (len(train_x), sum([len(i) for i in train_x])))
+        self.__log(LogLevel.TEXT, "    test: %7d sequences, %7d timesteps" %
+                   (len(test_x), sum([len(i) for i in test_x])))
+        self.__log(LogLevel.TEXT, "   total: %7d sequences, %7d timesteps" %
+                   (len(x), sum([len(i) for i in x])))
 
         return train_x, test_x, train_y, test_y
 
@@ -385,6 +388,7 @@ class NetGen:
 
         files_fraction = self.__configuration.getfloat("data_set", "files_fraction")
         sequences_fraction = self.__configuration.getfloat("data_set", "sequences_fraction")
+        max_timesteps = self.__configuration.getint("data_set", "max_timesteps")
         excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
         id_fields = self.__configuration.get("data_set", "id_fields").split()
         folder = dirname(data_file)
@@ -411,7 +415,7 @@ class NetGen:
                     files_count += 1
                     t = []
                     for i in self.__analyzer.analyze(capture):
-                        d = i.drop(excluded_fields, axis=1)
+                        d = i.head(max_timesteps).drop(excluded_fields, axis=1)
                         if len(rules) == 0 or " ".join(d.loc[0, id_fields].astype(str)) in rules:
                             t.append(d)
                     if sequences_fraction < 1:

@@ -26,6 +26,7 @@ from torch.nn import Softmax
 from torch.nn import TransformerEncoderLayer
 from torch.optim import Adam
 
+from netgen.ml import find_divisors
 from netgen.ml.nn import NeuralNetworkClassifier
 
 
@@ -44,11 +45,17 @@ class PositionalEncoder(Module):
 
         super(PositionalEncoder, self).__init__()
 
-        pe = zeros(max_timesteps, inputs)
+        extra = inputs % 2 == 1
+
+        pe = zeros(max_timesteps, inputs + extra)
         position = arange(0, max_timesteps, dtype=torch_float).unsqueeze(1)
-        factor = exp(arange(0, inputs, 2).float() * (-log(10000.0) / inputs))
+        factor = exp(arange(0, inputs + extra, 2).float() * (-log(10000) / inputs + extra))
         pe[:, 0::2] = sin(position * factor)
         pe[:, 1::2] = cos(position * factor)
+
+        if extra == 1:
+            pe = pe[:, :-1]
+
         pe = pe.unsqueeze(0).transpose(0, 1)
 
         self.register_buffer("pe", pe)
@@ -68,7 +75,8 @@ class TransformerModule(Module):
     A transformer neural network module.
     """
 
-    def __init__(self, inputs: int, outputs: int, max_timesteps: int, layers: int, neurons_per_layer: int, p: float):
+    def __init__(self, inputs: int, outputs: int, max_timesteps: int, layers: int, neurons_per_layer: int,
+                 heads_count: int, p: float):
         """
         Creates the module.
         :param inputs: the number of input neurons
@@ -76,6 +84,7 @@ class TransformerModule(Module):
         :param max_timesteps: the maximum number of timesteps
         :param layers: the number of encoding layers
         :param neurons_per_layer: the number of neurons in the hidden layers
+        :param heads_count: the number of attention heads
         :param p: the dropout probability
         """
 
@@ -84,7 +93,7 @@ class TransformerModule(Module):
         self.__positional_encoder = PositionalEncoder(inputs, max_timesteps)
         encoders = []
         for _ in range(layers):
-            encoders.append(TransformerEncoderLayer(inputs, 1, neurons_per_layer, p))
+            encoders.append(TransformerEncoderLayer(inputs, heads_count, neurons_per_layer, p))
         self.__encoders = Sequential(*encoders)
         self.__linear = Linear(inputs, outputs)
         self.__softmax = Softmax(dim=-1)
@@ -105,6 +114,7 @@ class TransformerModule(Module):
         return y
 
 
+# noinspection DuplicatedCode
 def train_transformer(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) -> NeuralNetClassifier:
     """
     Trains a transformer neural network.
@@ -116,16 +126,19 @@ def train_transformer(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) ->
     :return: the trained classifier
     """
 
+    inputs = x[0].shape[1]
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical("categorical", (32, 64, 128))
     layers = trial.suggest_int("layers", 1, 6)
     neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (10, 100))
+    heads_count = trial.suggest_categorical("heads_count", find_divisors(inputs, 8))
+    p = trial.suggest_float("p", 0, 0.25)
 
     classes = sorted(y.unique().tolist())
     class_weights = compute_class_weight("balanced", classes=classes, y=y)
     y = LongTensor(LabelEncoder().fit_transform(y.to_numpy()))
     classifier = NeuralNetworkClassifier(module=TransformerModule,
-                                         module__inputs=x[0].shape[1], module__outputs=len(classes),
+                                         module__inputs=inputs, module__outputs=len(classes),
                                          module__max_timesteps=x[0].shape[0],
                                          classes=classes,
                                          train_split=None,
@@ -139,7 +152,8 @@ def train_transformer(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) ->
                                          batch_size=batch_size,
                                          module__layers=layers,
                                          module__neurons_per_layer=neurons_per_layer,
-                                         module__p=0.1)
+                                         module__heads_count=heads_count,
+                                         module__p=p)
 
     classifier.fit(x, y)
 

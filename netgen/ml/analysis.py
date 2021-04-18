@@ -94,3 +94,20 @@ def to_2d_tensors(x: Sequence[DataFrame], y: Optional[Sequence[str]], features: 
         y = Series(y)
 
     return original, new_x, y
+
+
+def find_divisors(value: int, max_divisor: int) -> Sequence[int]:
+    """
+    Finds the divisors of a number.
+
+    :param value: the value to compute the divisors for
+    :param max_divisor: the maximum allowed divisor
+    :return: the list of divisors
+    """
+
+    divisors = []
+    for i in range(1, min(max_divisor, value) + 1):
+        if value % i == 0:
+            divisors.append(i)
+
+    return divisors

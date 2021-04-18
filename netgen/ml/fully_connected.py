@@ -82,6 +82,7 @@ def train_fully_connected(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series
     batch_size = trial.suggest_categorical("categorical", (256, 512, 1024))
     layers = trial.suggest_int("layers", 2, 10)
     neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (128, 256, 512))
+    p = trial.suggest_float("p", 0, 0.25)
 
     classes = sorted(y.unique().tolist())
     class_weights = compute_class_weight("balanced", classes=classes, y=y)
@@ -100,7 +101,7 @@ def train_fully_connected(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series
                                          batch_size=batch_size,
                                          module__layers=layers,
                                          module__neurons_per_layer=neurons_per_layer,
-                                         module__p=0.1)
+                                         module__p=p)
 
     classifier.fit(x, y)
 

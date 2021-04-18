@@ -2,6 +2,7 @@
 Machine learning stuff.
 """
 
+from .analysis import find_divisors
 from .analysis import to_2d_tensor
 from .analysis import to_2d_tensors
 from .analysis import to_dataframe
