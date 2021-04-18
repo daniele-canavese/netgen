@@ -156,9 +156,8 @@ class NetGen:
         return data
 
     def __optimize(self, name: str, scale: bool, x: Any, y: Any,
-                   train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any],
-                   timeout: int, kind: ClassifierType,
-                   model: Dict[str, Any], best: float) -> Tuple[Dict[str, Any], float]:
+                   train: Callable[[Union[Trial, FrozenTrial], Any, Any], Any], timeout: int, kind: ClassifierType,
+                   model: Dict[str, Any]) -> Dict[str, Any]:
         """
         Optimizes a new classifier.
 
@@ -171,8 +170,7 @@ class NetGen:
         :param timeout: the timeout in seconds
         :param kind: the classifier type
         :param model: the best model so far
-        :param best: the best score so far
-        :return: a tuple where the first element is the best model and the second element is the best score
+        :return: the best model
         """
 
         if scale:
@@ -192,16 +190,20 @@ class NetGen:
         classifier, study = optimize("%s study" % name, x, y, train, infer=infer, timeout=timeout,
                                      verbose=self.__verbose)
 
-        if study.best_value > best:
+        if study.best_value > model["score"]:
             best = study.best_value
             model = {
                     "scaler":     scaler,
                     "classifier": classifier,
-                    "type":       kind
+                    "type":       kind,
+                    "name":       name,
+                    "score":      best
             }
-            self.__log(LogLevel.TEXT, "the new best classifier is %s" % name)
+            self.__log(LogLevel.TEXT, "the new best classifier is %s with MCC=%.3f" % (name, best))
+        else:
+            self.__log(LogLevel.TEXT, "the best classifier is still %s with MCC=%.3f" % (model["name"], model["score"]))
 
-        return model, best
+        return model
 
     @staticmethod
     def __scale(scaler: Optional[StandardScaler], x: Any) -> Any:
@@ -482,8 +484,7 @@ class NetGen:
         transformer = (10000 <= train_sequences <= 10000000 if transformer == "auto" else transformer == "true")
 
         features = self.__get_features(train_x[0].columns.to_list())
-        model = {}
-        best = -inf
+        model = {"score": -inf}
 
         with catch_warnings():
             simplefilter("ignore")
@@ -493,26 +494,25 @@ class NetGen:
                 _, test_x2, test_y2 = to_dataframe(test_x, test_y, features)
 
                 if random_forest:
-                    model, best = self.__optimize("a random forest", False, train_x2, train_y2, train_random_forest,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
+                    model = self.__optimize("a random forest", False, train_x2, train_y2, train_random_forest,
+                                            timeout, ClassifierType.COMBINATORIAL_TABLE, model)
                 if extra_trees:
-                    model, best = self.__optimize("an extra-trees", False, train_x2, train_y2, train_extra_trees,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
+                    model = self.__optimize("an extra-trees", False, train_x2, train_y2, train_extra_trees,
+                                            timeout, ClassifierType.COMBINATORIAL_TABLE, model)
                 if svm:
-                    model, best = self.__optimize("a bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
-                                                  timeout, ClassifierType.COMBINATORIAL_TABLE, model, best)
+                    model = self.__optimize("a bagging classifier of SVMs", True, train_x2, train_y2, train_svm,
+                                            timeout, ClassifierType.COMBINATORIAL_TABLE, model)
                 if knn:
-                    model, best = self.__optimize("a kNN classifier", True, train_x2, train_y2, train_knn, timeout,
-                                                  ClassifierType.COMBINATORIAL_TABLE, model, best)
+                    model = self.__optimize("a kNN classifier", True, train_x2, train_y2, train_knn, timeout,
+                                            ClassifierType.COMBINATORIAL_TABLE, model)
 
             if fully_connected:
                 self.__log(LogLevel.SECTION, "creating the 2D tensors for the combinatorial models...")
                 _, train_x2, train_y2 = to_2d_tensor(train_x, train_y, features)
                 _, test_x2, test_y2 = to_2d_tensor(test_x, test_y, features)
 
-                model, best = self.__optimize("a fully connected neural network", True, train_x2, train_y2,
-                                              train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR,
-                                              model, best)
+                model = self.__optimize("a fully connected neural network", True, train_x2, train_y2,
+                                        train_fully_connected, timeout, ClassifierType.COMBINATORIAL_TENSOR, model)
 
             if lstm or transformer:
                 self.__log(LogLevel.SECTION, "creating the 2D tensors for the sequential models...")
@@ -520,11 +520,10 @@ class NetGen:
                 _, test_x2, test_y2 = to_2d_tensors(test_x, test_y, features, max_timesteps)
 
                 if lstm:
-                    model, best = self.__optimize("an LSTM neural network", True, train_x2, train_y2,
-                                                  train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model, best)
+                    model = self.__optimize("an LSTM neural network", True, train_x2, train_y2,
+                                            train_lstm, timeout, ClassifierType.SEQUENTIAL_TENSOR, model)
                 if transformer:
-                    model, best = self.__optimize("a transformer neural network", True, train_x2, train_y2,
-                                                  train_transformer, timeout, ClassifierType.SEQUENTIAL_TENSOR, model,
-                                                  best)
+                    model = self.__optimize("a transformer neural network", True, train_x2, train_y2,
+                                            train_transformer, timeout, ClassifierType.SEQUENTIAL_TENSOR, model)
 
         return model, train_x, test_x, train_y, test_y
