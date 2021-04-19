@@ -21,8 +21,8 @@ from torch import zeros
 from torch.cuda import is_available
 from torch.nn import Linear
 from torch.nn import Module
-from torch.nn import Sequential
 from torch.nn import Softmax
+from torch.nn import TransformerEncoder
 from torch.nn import TransformerEncoderLayer
 from torch.optim import Adam
 
@@ -91,10 +91,8 @@ class TransformerModule(Module):
         super(TransformerModule, self).__init__()
 
         self.__positional_encoder = PositionalEncoder(inputs, max_timesteps)
-        encoders = []
-        for _ in range(layers):
-            encoders.append(TransformerEncoderLayer(inputs, heads_count, neurons_per_layer, p))
-        self.__encoders = Sequential(*encoders)
+        layer = TransformerEncoderLayer(inputs, heads_count, neurons_per_layer, p)
+        self.__encoder = TransformerEncoder(layer, layers)
         self.__linear = Linear(inputs, outputs)
         self.__softmax = Softmax(dim=-1)
 
@@ -106,7 +104,7 @@ class TransformerModule(Module):
         """
 
         y = self.__positional_encoder(x)
-        y = self.__encoders(y)
+        y = self.__encoder(y)
         y = y[:, -1, :]
         y = self.__linear(y)
         y = self.__softmax(y)
@@ -128,10 +126,10 @@ def train_transformer(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) ->
 
     inputs = x[0].shape[1]
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("categorical", (32, 64, 128))
-    layers = trial.suggest_int("layers", 1, 6)
-    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (10, 100))
-    heads_count = trial.suggest_categorical("heads_count", find_divisors(inputs, 8))
+    batch_size = trial.suggest_categorical("batch_size", (8, 16, 32))
+    layers = trial.suggest_int("layers", 1, 4)
+    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (512, 1024, 2048))
+    heads_count = trial.suggest_categorical("heads_count", find_divisors(inputs, 4))
     p = trial.suggest_float("p", 0, 0.25)
 
     classes = sorted(y.unique().tolist())

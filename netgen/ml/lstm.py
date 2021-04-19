@@ -81,8 +81,8 @@ def train_lstm(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series) -> Neural
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
     batch_size = trial.suggest_categorical("batch_size", (32, 64, 128))
     layers = trial.suggest_int("layers", 1, 4)
-    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (10, 100))
-    heads_count = trial.suggest_categorical("heads_count", find_divisors(inputs, 8))
+    neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (32, 64, 128, 256, 512))
+    heads_count = trial.suggest_categorical("heads_count", find_divisors(inputs, 4))
     p = trial.suggest_float("p", 0, 0.25)
 
     classes = sorted(y.unique().tolist())

@@ -79,7 +79,7 @@ def train_fully_connected(trial: Union[Trial, FrozenTrial], x: Tensor, y: Series
     """
 
     lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("categorical", (256, 512, 1024))
+    batch_size = trial.suggest_categorical("batch_size", (256, 512, 1024))
     layers = trial.suggest_int("layers", 2, 10)
     neurons_per_layer = trial.suggest_categorical("neurons_per_layer", (128, 256, 512))
     p = trial.suggest_float("p", 0, 0.25)
