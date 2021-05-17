@@ -1,3 +1,3 @@
-# netgen
+# NetGen
 
-Upcoming full version + documentation!
+The full documentation is coming!

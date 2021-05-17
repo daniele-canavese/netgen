@@ -28,12 +28,14 @@ from joblib import load
 from numpy import argmax
 from numpy import array
 from numpy import inf
+# noinspection PyPackageRequirements
 from ops import optimize
 from optuna import Trial
 from optuna.trial import FrozenTrial
 from pandas import DataFrame
 from pandas import Series
 from pandas import concat
+# noinspection PyPackageRequirements
 from quill.ml import ClassificationReport
 from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
@@ -258,7 +260,7 @@ class NetGen:
         Performs the classification of some traffic.
 
         :param model: the file name of the model of the model itself
-        :param target: the pcap file to analyze, the interface to sniff or the data itself
+        :param target: the pcap file to analyze, the interface to sniff or a data set itself
         :param classes: the expected list of classes; sets to None if there is no such list
         :return: the classification of the data
         """

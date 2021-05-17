@@ -2,6 +2,7 @@
 The UI back-end.
 """
 from colorsys import hls_to_rgb
+from typing import Any
 from typing import Sequence
 
 from blessed import Terminal
@@ -35,11 +36,12 @@ class UIBackEnd(BackEnd):
         print(self.__terminal.enter_fullscreen(), end="", flush=True)
         print(self.__terminal.move_yx(0, 0), end="", flush=True)
 
-    def report(self, results: DataFrame) -> None:
+    def report(self, results: DataFrame, item: Any) -> None:
         """
         Reports some classification results.
 
         :param results: the classification results to report
+        :param item: the object that triggered the classification
         """
 
         columns = results.columns

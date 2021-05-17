@@ -9,6 +9,7 @@ sklearn = "*"
 blessed = "*"
 torch = "*"
 skorch = "*"
+pymisp = "*"
 
 [dev-packages]
 
