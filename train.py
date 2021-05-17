@@ -19,7 +19,7 @@ parser.add_argument("--quiet", action="store_true", help="disables the logs")
 parser.add_argument("--test", default="test", help="the test report folder")
 parser.add_argument("--seed", type=int, default=42, help="the seed for the pseudo-random number generators")
 parser.add_argument("--config", default="netgen.conf", help="the name of the configuration file")
-parser.add_argument("--model", default="model.joblib", help="the name of the generated model file")
+parser.add_argument("--model", default="model.joblib.xz", help="the name of the generated model file")
 parser.add_argument("data", help="the name of the data file")
 args = parser.parse_args()
 

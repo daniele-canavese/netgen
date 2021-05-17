@@ -34,7 +34,7 @@ from optuna.trial import FrozenTrial
 from pandas import DataFrame
 from pandas import Series
 from pandas import concat
-from quill_ml import ClassificationReport
+from quill.ml import ClassificationReport
 from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -146,7 +146,7 @@ class NetGen:
         classes = classifier.classes_
 
         data = DataFrame()
-        if y is not None:
+        if y is not None and len(y) > 0:
             data["target"] = y
         data["inferred"] = [classes[i] for i in indexes]
         data["probability"] = [probabilities[i, j] for i, j in enumerate(indexes)]
@@ -332,8 +332,8 @@ class NetGen:
         with catch_warnings():
             simplefilter("ignore")
             report = ClassificationReport("NetGen report")
-            report.set_classification_data("analyzer", "training set", train)
-            report.set_classification_data("analyzer", "test set", test)
+            report.add_classification("analyzer", "training set", train, model["classifier"].classes_)
+            report.add_classification("analyzer", "test set", test, model["classifier"].classes_)
             if not exists(folder):
                 mkdir(folder)
             report.render(folder)
@@ -392,7 +392,6 @@ class NetGen:
         sequences_fraction = self.__configuration.getfloat("data_set", "sequences_fraction")
         max_timesteps = self.__configuration.getint("data_set", "max_timesteps")
         excluded_fields = self.__configuration.get("data_set", "excluded_fields").split()
-        id_fields = self.__configuration.get("data_set", "id_fields").split()
         folder = dirname(data_file)
 
         with open(data_file) as files:
@@ -408,8 +407,7 @@ class NetGen:
             files_count = 0
             class_data_set = []
             self.__log(LogLevel.SECTION, "analyzing the captures for the class \"%s\"..." % name)
-            for entry, rules in captures.items():  # Iterates over the entries.
-                rules = set(rules)  # For a faster search later.
+            for entry in captures:  # Iterates over the entries.
                 files = sorted(glob("%s/%s" % (folder, entry), recursive=True))
                 if files_fraction < 1:
                     files = choices(files, k=ceil(len(files) * files_fraction))
@@ -417,9 +415,7 @@ class NetGen:
                     files_count += 1
                     t = []
                     for i in self.__analyzer.analyze(capture):
-                        d = i.head(max_timesteps).drop(excluded_fields, axis=1)
-                        if len(rules) == 0 or " ".join(d.loc[0, id_fields].astype(str)) in rules:
-                            t.append(d)
+                        t.append(i.head(max_timesteps).drop(excluded_fields, axis=1))
                     if sequences_fraction < 1:
                         t = choices(t, k=ceil(len(t) * sequences_fraction))
                     class_data_set.extend(t)
