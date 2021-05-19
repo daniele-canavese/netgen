@@ -17,16 +17,18 @@ class MISPBackEnd(BackEnd):
     The MISP back-end.
     """
 
-    def __init__(self, server: MISPServer, skip_fields: int) -> None:
+    def __init__(self, server: MISPServer, skip_fields: int, update: bool) -> None:
         """
         Create the back-end.
 
         :param server: the MISP server
         :param skip_fields: the number of fields to skip in the results
+        :param update: indicates if the MISP events should be updated or not
         """
 
         self.__server = server
         self.__skip_fields = skip_fields
+        self.__update = update
 
     def report(self, results: DataFrame, item: MISPEvent) -> None:
         """
@@ -49,6 +51,7 @@ class MISPBackEnd(BackEnd):
                 "attacks":   attacks}
         item.attributes["Attribute"]["value"] = dumps(json)
         item.attributes["Attribute"]["timestamp"] = str(datetime.now().timestamp())
-        self.__server.update_attributes(item.attributes)
+        if self.__update:
+            self.__server.update_attributes(item.attributes)
 
         print(f"event {identifier} classified as {label} with confidence {confidence:.3}")

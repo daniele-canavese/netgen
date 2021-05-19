@@ -6,21 +6,23 @@ from argparse import ArgumentParser
 from configparser import ConfigParser
 from configparser import MissingSectionHeaderError
 from os.path import exists
+from os.path import getsize
 
 from netgen import NetGen
 from netgen.backends import CSVBackEnd
 from netgen.backends import MISPBackEnd
 from netgen.backends import UIBackEnd
-# Parses the input arguments.
 from netgen.misp import MISPEvent
 from netgen.misp import MISPServer
 
+# Parses the input arguments.
 parser = ArgumentParser(description="Runs a traffic analyzer.")
 parser.add_argument("--quiet", action="store_true", help="disables the logs")
 parser.add_argument("--show", help="shows only the flow with these (comma separated) classes")
 parser.add_argument("--config", default="netgen.conf", help="the name of the configuration file")
 parser.add_argument("--model", default="model.joblib.xz", help="the name of the generated model file")
-parser.add_argument("--back-end", default="csv", choices=("csv", "misp", "ui"), help="the back-end to use")
+parser.add_argument("--back-end", default="csv", choices=("csv", "misp", "misp_update", "ui"),
+                    help="the back-end to use")
 parser.add_argument("target", help="the name of the pcap file, MISP configuration or the interface to use")
 args = parser.parse_args()
 
@@ -45,7 +47,9 @@ except (ValueError, MissingSectionHeaderError):
 if args.back_end == "ui":
     back_end = UIBackEnd(netgen.get_classes(args.model))
 elif args.back_end == "misp":
-    back_end = MISPBackEnd(server, len(configuration.get("data_set", "id_fields").split()))
+    back_end = MISPBackEnd(server, len(configuration.get("data_set", "id_fields").split()), False)
+elif args.back_end == "misp_update":
+    back_end = MISPBackEnd(server, len(configuration.get("data_set", "id_fields").split()), True)
 else:
     back_end = CSVBackEnd()
 if args.show is None:
@@ -59,6 +63,9 @@ for item in items:
             target = item.pcap
         else:
             target = item
+
+        if exists(target) and getsize(target) <= 24:  # This is most likely an empty pcap file, so we skip it.
+            continue
 
         results = netgen.infer(args.model, target)
         if len(results) > 0 and len(classes) > 0:
