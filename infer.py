@@ -5,8 +5,10 @@ Runs an existing traffic analyzer.
 from argparse import ArgumentParser
 from configparser import ConfigParser
 from configparser import MissingSectionHeaderError
+from configparser import NoSectionError
 from os.path import exists
 from os.path import getsize
+from typing import Any
 
 from netgen import NetGen
 from netgen.backends import CSVBackEnd
@@ -14,6 +16,19 @@ from netgen.backends import MISPBackEnd
 from netgen.backends import UIBackEnd
 from netgen.misp import MISPEvent
 from netgen.misp import MISPServer
+
+
+def infinity(value: Any) -> Any:
+    """
+    Creates an infinite generator.
+
+    :param value: the value to replicate infinite times
+    :return: the value passed as the argument
+    """
+
+    while True:
+        yield value
+
 
 # Parses the input arguments.
 parser = ArgumentParser(description="Runs a traffic analyzer.")
@@ -38,11 +53,11 @@ try:
     misp_configuration.read(args.target)
     server = MISPServer(misp_configuration, not args.quiet)
     items = server.get_events()
-except (ValueError, MissingSectionHeaderError):
-    if exists(args.target):
+except (ValueError, MissingSectionHeaderError, NoSectionError):
+    if exists(args.target):  # This is a pcap file.
         items = [args.target]
-    else:
-        items = None
+    else:  # This is an interface.
+        items = infinity(args.target)
 
 if args.back_end == "ui":
     back_end = UIBackEnd(netgen.get_classes(args.model))
@@ -65,6 +80,8 @@ for item in items:
             target = item
 
         if exists(target) and getsize(target) <= 24:  # This is most likely an empty pcap file, so we skip it.
+            if isinstance(item, MISPEvent) and not args.quiet:  # This is MISP stuff.
+                print(f"event {item.attributes['Attribute']['event_id']} has an empty pcap file")
             continue
 
         results = netgen.infer(args.model, target)
