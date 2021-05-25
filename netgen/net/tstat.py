@@ -199,7 +199,7 @@ class TstatAnalyzer(Analyzer):
 
         return list(dataframe_dictionary.values())
 
-    def __del__(self):
+    def __del__(self) -> None:
         """
         Stop sniffing an interface, closing gracefully the underlying Tstat instance.
         """

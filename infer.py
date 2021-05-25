@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from configparser import ConfigParser
 from configparser import MissingSectionHeaderError
 from configparser import NoSectionError
+from os import remove
 from os.path import exists
 from os.path import getsize
 from typing import Any
@@ -48,8 +49,8 @@ configuration.read(args.config)
 netgen = NetGen(configuration, False)
 
 server = None
+misp_configuration = ConfigParser()
 try:
-    misp_configuration = ConfigParser()
     misp_configuration.read(args.target)
     server = MISPServer(misp_configuration, not args.quiet)
     items = server.get_events()
@@ -89,6 +90,9 @@ for item in items:
             results = results[results["inferred"].isin(classes)]
 
         back_end.report(results, item)
+
+        if isinstance(item, MISPEvent):  # This is MISP stuff.
+            remove(item.pcap)
     except KeyboardInterrupt:
         break
 
